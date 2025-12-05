@@ -72,10 +72,13 @@ class GameEngine {
         
         this.COLLISION_RADIUS = 11.025;
         this.MAX_HEALTH = 5;
-        this.KNIFE_SPEED = 4.5864;
+        // KNIFE_SPEED is in units per second (multiplied by dt in updateKnives)
+        // Frontend uses position += velocity (no dt), so at ~60fps: 4.5864 * 60 = ~275 units/sec
+        // To match frontend feel, server needs same effective speed
+        this.KNIFE_SPEED = 275;
         this.KNIFE_COOLDOWN = 4000;
         this.KNIFE_LIFETIME = 35000;
-        this.PLAYER_SPEED = 23.4;
+        this.PLAYER_SPEED = 48.75;
         this.MAP_BOUNDS = { minX: -50, maxX: 50, minZ: -50, maxZ: 50 };
         
         ensureEventLoopMonitors();
@@ -527,7 +530,7 @@ class GameEngine {
     /**
      * Handle knife throw request from client with lag compensation
      */
-    handleKnifeThrow(socketId, targetX, targetZ, actionId, io, clientTimestamp) {
+    handleKnifeThrow(socketId, targetX, targetZ, actionId, io, clientTimestamp, debugId, clientSendTime) {
         const player = this.players.get(socketId);
         if (!player) {
             console.log(`[GAME-ENGINE] Invalid player socket: ${socketId}`);
@@ -592,7 +595,9 @@ class GameEngine {
             spawnTime: now,
             actionId,
             hasHit: false,
-            clientTimestamp: clientTimestamp || now  // Store for lag compensation (important-comment)
+            clientTimestamp: clientTimestamp || now,  // Store for lag compensation (important-comment)
+            debugId: debugId || null,  // LAG DEBUG: Store for end-to-end tracking
+            clientSendTime: clientSendTime || 0  // LAG DEBUG: Store original client send time
         };
         
         this.knives.set(knifeId, knife);
@@ -750,6 +755,12 @@ class GameEngine {
             
             knife.x += knife.velocityX * dt;
             knife.z += knife.velocityZ * dt;
+            
+            // Remove knives that go out of bounds (same thresholds as frontend)
+            if (Math.abs(knife.x) > 120 || Math.abs(knife.z) > 90) {
+                knivesToRemove.push(knifeId);
+                continue;
+            }
         }
         
         for (const knifeId of knivesToRemove) {
@@ -844,6 +855,13 @@ class GameEngine {
                     const previousHealth = player.health;
                     player.health = Math.max(0, player.health - 1);
                     
+                    // LAG DEBUG: Log when hit is detected
+                    const hitDetectTime = Date.now();
+                    const debugId = knife.debugId || 'unknown';
+                    const clientSendTime = knife.clientSendTime || 0;
+                    const timeSinceClientSend = clientSendTime > 0 ? hitDetectTime - clientSendTime : 'N/A';
+                    console.log(`[LAG][KNIFE][SERVER-HIT] id=${debugId} t=${hitDetectTime} timeSinceClientSend=${timeSinceClientSend}ms target=${player.playerId}`);
+                    
                     console.log(`[GAME-ENGINE] 🎯 Knife ${knifeId} hit Team ${player.team} - Health: ${previousHealth} → ${player.health}`);
                     
                     if (player.health <= 0 && !player.isDead) {
@@ -851,13 +869,20 @@ class GameEngine {
                         console.log(`[GAME-ENGINE] ☠️ Team ${player.team} Player ${player.playerId} died`);
                     }
                     
+                    // LAG DEBUG: Log when health update is emitted
+                    const serverEmitTime = Date.now();
+                    console.log(`[LAG][KNIFE][SERVER-EMIT-HEALTH] id=${debugId} t=${serverEmitTime} processingTime=${serverEmitTime - hitDetectTime}ms`);
+                    
                     io.to(this.roomCode).emit('serverHealthUpdate', {
                         targetPlayerId: player.playerId,
                         targetTeam: Number(player.team),
                         health: player.health,
                         isDead: player.isDead,
                         serverTick: this.serverTick,
-                        serverTime: Date.now()
+                        serverTime: serverEmitTime,
+                        debugId: debugId,  // LAG DEBUG: Pass through for client tracking
+                        clientSendTime: clientSendTime,  // LAG DEBUG: Pass through for end-to-end calculation
+                        serverEmitTime: serverEmitTime  // LAG DEBUG: For server-to-client leg calculation
                     });
                     
                     io.to(this.roomCode).emit('serverKnifeHit', {
