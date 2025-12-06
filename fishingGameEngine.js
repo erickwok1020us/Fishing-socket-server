@@ -113,7 +113,13 @@ class FishingGameEngine {
         // Game constants (adapted from Pudge Wars)
         this.BULLET_SPEED = 275; // Same as knife speed
         this.BULLET_LIFETIME = 5000; // Bullets last 5 seconds
-        this.COLLISION_RADIUS = 8; // Hit detection radius
+        
+        // Collision detection - derived from actual mesh dimensions
+        // Fish body: SphereGeometry(1.5 * scale) then scaled by (1.5, 0.8, 1) = effective radius ~2.25 * scale
+        // Bullet: SphereGeometry(0.5) = radius 0.5
+        this.FISH_BASE_RADIUS = 2.25; // Matches Three.js fish body geometry
+        this.BULLET_RADIUS = 0.5;     // Matches Three.js bullet geometry
+        this.COLLISION_FUDGE = 0.3;   // Small buffer for network/timestep issues
         
         // Map bounds (ocean area)
         this.MAP_BOUNDS = { 
@@ -621,11 +627,13 @@ class FishingGameEngine {
             
             for (const [fishId, fish] of this.fish.entries()) {
                 // Swept collision detection (line-circle intersection)
+                // Hit radius = fish visual radius + bullet radius + small fudge
+                const hitRadius = this.FISH_BASE_RADIUS * fish.size + this.BULLET_RADIUS + this.COLLISION_FUDGE;
                 const hit = this.lineCircleIntersection(
                     bullet.prevX, bullet.prevZ,
                     bullet.x, bullet.z,
                     fish.x, fish.z,
-                    this.COLLISION_RADIUS * fish.size
+                    hitRadius
                 );
                 
                 if (hit) {
