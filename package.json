@@ -1,10 +1,10 @@
 {
-  "name": "mundo-cleaver-server",
+  "name": "fishing-game-server",
   "version": "1.0.0",
-  "description": "Socket.io server for Mundo Cleaver multiplayer game",
-  "main": "server.js",
+  "description": "Socket.io server for Fishing multiplayer game",
+  "main": "fishingServer.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node fishingServer.js"
   },
   "dependencies": {
     "@socket.io/redis-adapter": "^8.3.0",
