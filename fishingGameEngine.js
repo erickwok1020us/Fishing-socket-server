@@ -127,17 +127,27 @@ class FishingGameEngine {
             minZ: -60, maxZ: 60 
         };
         
-        // Turret positions (fixed positions for each player slot)
+        // Turret positions distributed around pool edges (8 positions)
+        // Each turret faces toward the center of the pool
         this.TURRET_POSITIONS = [
-            { x: 0, z: 55 },      // Bottom center
-            { x: -40, z: 55 },    // Bottom left
-            { x: 40, z: 55 },     // Bottom right
-            { x: -60, z: 55 },    // Far left
-            { x: 60, z: 55 },     // Far right
-            { x: -20, z: 55 },    // Left of center
-            { x: 20, z: 55 },     // Right of center
-            { x: 0, z: -55 }      // Top center (for spectator/special)
+            { x: 0, z: 55 },       // Position 1: Bottom center (player default)
+            { x: -50, z: 55 },     // Position 2: Bottom left
+            { x: 50, z: 55 },      // Position 3: Bottom right
+            { x: -75, z: 0 },      // Position 4: Left side
+            { x: 75, z: 0 },       // Position 5: Right side
+            { x: -50, z: -55 },    // Position 6: Top left
+            { x: 0, z: -55 },      // Position 7: Top center
+            { x: 50, z: -55 }      // Position 8: Top right
         ];
+        
+        // AI turret management for Single Player mode
+        this.aiTurrets = new Map(); // playerId -> AI turret data
+        this.isSinglePlayer = false;
+        this.AI_ACCURACY = 0.6; // 60% accurate shots, 40% miss
+        this.AI_MISS_ANGLE_MIN = 10; // Minimum miss angle in degrees
+        this.AI_MISS_ANGLE_MAX = 25; // Maximum miss angle in degrees
+        this.AI_SHOT_INTERVAL_MIN = 800; // Minimum time between AI shots (ms)
+        this.AI_SHOT_INTERVAL_MAX = 2000; // Maximum time between AI shots (ms)
         
         ensureEventLoopMonitors();
         
@@ -159,26 +169,224 @@ class FishingGameEngine {
     /**
      * Add a player (turret) to the game
      */
-    addPlayer(socketId, playerId) {
+    addPlayer(socketId, playerId, isAI = false) {
         const turretPosition = this.TURRET_POSITIONS[playerId - 1] || { x: 0, z: 55 };
         
-        this.players.set(socketId, {
-            socketId,
+        // Calculate rotation to face center of pool (0, 0)
+        const turretRotation = Math.atan2(-turretPosition.x, -turretPosition.z);
+        
+        const playerData = {
+            socketId: isAI ? `ai-${playerId}` : socketId,
             playerId,
+            isAI,
             coins: 10000, // Starting coins
             totalWinnings: 0,
             totalBets: 0,
             currentBet: 10, // Default bet amount
             turretX: turretPosition.x,
             turretZ: turretPosition.z,
-            turretRotation: 0, // Facing up (toward fish)
+            turretRotation: turretRotation, // Face toward center
             lastShotTime: 0,
-            shotCooldown: 200, // 200ms between shots
+            shotCooldown: isAI ? 500 : 200, // AI has slightly longer cooldown
             combo: 0,
-            lastKillTime: 0
+            lastKillTime: 0,
+            // AI-specific properties
+            nextShotTime: isAI ? Date.now() + Math.random() * 2000 : 0
+        };
+        
+        if (isAI) {
+            this.aiTurrets.set(playerId, playerData);
+        } else {
+            this.players.set(socketId, playerData);
+        }
+        
+        console.log(`[FISHING-ENGINE] ${isAI ? 'AI' : 'Player'} ${playerId} added at turret position (${turretPosition.x}, ${turretPosition.z})`);
+    }
+    
+    /**
+     * Initialize AI turrets for Single Player mode
+     * Creates 7 AI turrets at positions 2-8 (player is at position 1)
+     */
+    initializeAITurrets() {
+        this.isSinglePlayer = true;
+        
+        // Add 7 AI turrets at positions 2-8
+        for (let i = 2; i <= 8; i++) {
+            this.addPlayer(null, i, true);
+        }
+        
+        console.log(`[FISHING-ENGINE] Initialized 7 AI turrets for Single Player mode`);
+    }
+    
+    /**
+     * Remove all AI turrets (when switching to multiplayer)
+     */
+    removeAITurrets() {
+        this.aiTurrets.clear();
+        this.isSinglePlayer = false;
+        console.log(`[FISHING-ENGINE] Removed all AI turrets`);
+    }
+    
+    /**
+     * Update AI turrets - called each game tick
+     * AI turrets automatically shoot at fish with 60% accuracy
+     */
+    updateAITurrets(io) {
+        if (!this.isSinglePlayer || this.aiTurrets.size === 0) return;
+        
+        const now = Date.now();
+        
+        for (const [playerId, ai] of this.aiTurrets.entries()) {
+            // Check if it's time for this AI to shoot
+            if (now < ai.nextShotTime) continue;
+            
+            // Check if AI has enough coins
+            if (ai.coins < ai.currentBet) continue;
+            
+            // Find a target fish
+            const targetFish = this.findAITarget(ai);
+            if (!targetFish) continue;
+            
+            // Determine if this shot is accurate or a miss
+            const isAccurate = Math.random() < this.AI_ACCURACY;
+            
+            let targetX, targetZ;
+            
+            if (isAccurate) {
+                // Accurate shot - aim directly at fish with slight lead
+                const leadTime = 0.3; // Lead the target slightly
+                targetX = targetFish.x + targetFish.velocityX * leadTime;
+                targetZ = targetFish.z + targetFish.velocityZ * leadTime;
+            } else {
+                // Miss shot - add angle drift
+                const missAngleDeg = this.AI_MISS_ANGLE_MIN + 
+                    Math.random() * (this.AI_MISS_ANGLE_MAX - this.AI_MISS_ANGLE_MIN);
+                const missAngleRad = (missAngleDeg * Math.PI / 180) * (Math.random() < 0.5 ? 1 : -1);
+                
+                // Calculate direction to fish
+                const dx = targetFish.x - ai.turretX;
+                const dz = targetFish.z - ai.turretZ;
+                const baseAngle = Math.atan2(dx, dz);
+                
+                // Apply miss angle
+                const missedAngle = baseAngle + missAngleRad;
+                const distance = Math.sqrt(dx * dx + dz * dz);
+                
+                targetX = ai.turretX + Math.sin(missedAngle) * distance;
+                targetZ = ai.turretZ + Math.cos(missedAngle) * distance;
+            }
+            
+            // Fire the AI bullet
+            this.fireAIBullet(ai, targetX, targetZ, io);
+            
+            // Schedule next shot with random interval
+            const nextInterval = this.AI_SHOT_INTERVAL_MIN + 
+                Math.random() * (this.AI_SHOT_INTERVAL_MAX - this.AI_SHOT_INTERVAL_MIN);
+            ai.nextShotTime = now + nextInterval;
+        }
+    }
+    
+    /**
+     * Find a target fish for AI to shoot at
+     * Prefers closer fish and higher value fish
+     */
+    findAITarget(ai) {
+        if (this.fish.size === 0) return null;
+        
+        let bestTarget = null;
+        let bestScore = -Infinity;
+        
+        for (const fish of this.fish.values()) {
+            // Calculate distance from AI turret to fish
+            const dx = fish.x - ai.turretX;
+            const dz = fish.z - ai.turretZ;
+            const distance = Math.sqrt(dx * dx + dz * dz);
+            
+            // Skip fish that are too far or behind the turret
+            if (distance > 120) continue;
+            
+            // Score based on distance (closer is better) and reward (higher is better)
+            // Also consider fish health (prefer fish that can be killed with fewer shots)
+            const distanceScore = 100 - distance;
+            const rewardScore = fish.baseReward * 2;
+            const healthScore = (fish.maxHealth - fish.health + 1) * 10; // Prefer damaged fish
+            
+            const totalScore = distanceScore + rewardScore + healthScore + Math.random() * 20;
+            
+            if (totalScore > bestScore) {
+                bestScore = totalScore;
+                bestTarget = fish;
+            }
+        }
+        
+        return bestTarget;
+    }
+    
+    /**
+     * Fire a bullet from an AI turret
+     */
+    fireAIBullet(ai, targetX, targetZ, io) {
+        const now = Date.now();
+        
+        // Deduct bet from AI
+        ai.coins -= ai.currentBet;
+        ai.totalBets += ai.currentBet;
+        
+        // Contribute to jackpot
+        const jackpotContrib = Math.floor(ai.currentBet * this.jackpotContribution);
+        this.jackpot += jackpotContrib;
+        
+        ai.lastShotTime = now;
+        
+        // Calculate bullet direction
+        const dx = targetX - ai.turretX;
+        const dz = targetZ - ai.turretZ;
+        const distance = Math.sqrt(dx * dx + dz * dz);
+        
+        if (distance < 0.1) return null;
+        
+        const normalizedDx = dx / distance;
+        const normalizedDz = dz / distance;
+        
+        // Update turret rotation
+        ai.turretRotation = Math.atan2(dx, dz);
+        
+        const bulletId = this.nextBulletId++;
+        const bullet = {
+            bulletId,
+            ownerId: ai.playerId,
+            ownerSocketId: ai.socketId, // ai-X format
+            betAmount: ai.currentBet,
+            isAIBullet: true,
+            
+            x: ai.turretX,
+            z: ai.turretZ,
+            prevX: ai.turretX,
+            prevZ: ai.turretZ,
+            velocityX: normalizedDx * this.BULLET_SPEED,
+            velocityZ: normalizedDz * this.BULLET_SPEED,
+            rotation: ai.turretRotation,
+            
+            spawnTime: now,
+            hasHit: false
+        };
+        
+        this.bullets.set(bulletId, bullet);
+        
+        // Broadcast bullet spawn to all players
+        io.to(this.roomCode).emit('bulletSpawned', {
+            bulletId,
+            ownerId: ai.playerId,
+            x: bullet.x,
+            z: bullet.z,
+            velocityX: bullet.velocityX,
+            velocityZ: bullet.velocityZ,
+            rotation: bullet.rotation,
+            betAmount: bullet.betAmount,
+            isAI: true
         });
         
-        console.log(`[FISHING-ENGINE] Player ${playerId} added at turret position (${turretPosition.x}, ${turretPosition.z})`);
+        return bullet;
     }
     
     /**
@@ -507,6 +715,9 @@ class FishingGameEngine {
                 // Check bullet-fish collisions
                 this.checkCollisions(io);
                 
+                // Update AI turrets (Single Player mode)
+                this.updateAITurrets(io);
+                
                 // Spawn new fish periodically
                 const nowMs = Date.now();
                 if (nowMs - this.lastFishSpawn > this.fishSpawnInterval) {
@@ -640,7 +851,11 @@ class FishingGameEngine {
                     bullet.hasHit = true;
                     fish.health--;
                     
-                    const player = this.players.get(bullet.ownerSocketId);
+                    // Get owner - could be human player or AI turret
+                    let owner = this.players.get(bullet.ownerSocketId);
+                    if (!owner && bullet.isAIBullet) {
+                        owner = this.aiTurrets.get(bullet.ownerId);
+                    }
                     
                     // Broadcast hit effect
                     io.to(this.roomCode).emit('bulletHit', {
@@ -649,44 +864,49 @@ class FishingGameEngine {
                         hitX: bullet.x,
                         hitZ: bullet.z,
                         fishHealth: fish.health,
-                        fishMaxHealth: fish.maxHealth
+                        fishMaxHealth: fish.maxHealth,
+                        isAI: bullet.isAIBullet || false
                     });
                     
                     // Check if fish is killed
                     if (fish.health <= 0) {
-                        if (player) {
-                            const reward = this.calculateReward(fish, player, bullet.betAmount);
-                            player.coins += reward.finalReward + reward.jackpotWin;
-                            player.totalWinnings += reward.finalReward + reward.jackpotWin;
+                        if (owner) {
+                            const reward = this.calculateReward(fish, owner, bullet.betAmount);
+                            owner.coins += reward.finalReward + reward.jackpotWin;
+                            owner.totalWinnings += reward.finalReward + reward.jackpotWin;
                             
                             // Broadcast fish killed
                             io.to(this.roomCode).emit('fishKilled', {
                                 fishId,
                                 fishType: fish.typeName,
                                 isLegendary: fish.isLegendary,
-                                killerId: player.playerId,
+                                killerId: owner.playerId,
                                 reward: reward.finalReward,
                                 combo: reward.combo,
                                 comboMultiplier: reward.comboMultiplier,
                                 jackpotWin: reward.jackpotWin,
                                 x: fish.x,
-                                z: fish.z
+                                z: fish.z,
+                                isAI: owner.isAI || false
                             });
                             
-                            // Send coin update to killer
-                            io.to(bullet.ownerSocketId).emit('coinUpdate', {
-                                coins: player.coins,
-                                change: reward.finalReward + reward.jackpotWin,
-                                reason: 'kill',
-                                fishType: fish.typeName,
-                                combo: reward.combo
-                            });
+                            // Send coin update to killer (only for human players)
+                            if (!owner.isAI) {
+                                io.to(bullet.ownerSocketId).emit('coinUpdate', {
+                                    coins: owner.coins,
+                                    change: reward.finalReward + reward.jackpotWin,
+                                    reason: 'kill',
+                                    fishType: fish.typeName,
+                                    combo: reward.combo
+                                });
+                            }
                             
                             if (reward.jackpotWin > 0) {
                                 io.to(this.roomCode).emit('jackpotWon', {
-                                    playerId: player.playerId,
+                                    playerId: owner.playerId,
                                     amount: reward.jackpotWin,
-                                    newJackpot: this.jackpot
+                                    newJackpot: this.jackpot,
+                                    isAI: owner.isAI || false
                                 });
                             }
                         }
@@ -760,18 +980,34 @@ class FishingGameEngine {
                 z: b.z,
                 velocityX: b.velocityX,
                 velocityZ: b.velocityZ,
-                rotation: b.rotation
+                rotation: b.rotation,
+                isAI: b.isAIBullet || false
             }));
         
-        const playersArray = Array.from(this.players.values()).map(p => ({
+        // Include both human players and AI turrets in the players array
+        const humanPlayers = Array.from(this.players.values()).map(p => ({
             playerId: p.playerId,
             coins: p.coins,
             currentBet: p.currentBet,
             turretX: p.turretX,
             turretZ: p.turretZ,
             turretRotation: p.turretRotation,
-            combo: p.combo
+            combo: p.combo,
+            isAI: false
         }));
+        
+        const aiPlayers = Array.from(this.aiTurrets.values()).map(p => ({
+            playerId: p.playerId,
+            coins: p.coins,
+            currentBet: p.currentBet,
+            turretX: p.turretX,
+            turretZ: p.turretZ,
+            turretRotation: p.turretRotation,
+            combo: p.combo,
+            isAI: true
+        }));
+        
+        const playersArray = [...humanPlayers, ...aiPlayers];
         
         io.to(this.roomCode).emit('serverGameState', {
             serverTick: this.serverTick,
@@ -779,7 +1015,8 @@ class FishingGameEngine {
             fish: fishArray,
             bullets: bulletsArray,
             players: playersArray,
-            jackpot: this.jackpot
+            jackpot: this.jackpot,
+            isSinglePlayer: this.isSinglePlayer
         });
     }
     
