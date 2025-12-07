@@ -122,22 +122,25 @@ class FishingGameEngine {
         this.COLLISION_FUDGE = 0.3;   // Small buffer for network/timestep issues
         
         // Map bounds (ocean area)
+        // Z range reduced by 30% from bottom (maxZ: 60 -> 42) to create gap above BET panel
         this.MAP_BOUNDS = { 
             minX: -80, maxX: 80, 
-            minZ: -60, maxZ: 60 
+            minZ: -60, maxZ: 42 
         };
         
-        // Turret positions distributed around pool edges (8 positions)
+        // Turret positions at the very edge of the pool (8 positions)
         // Each turret faces toward the center of the pool
+        // Pool bounds: x∈[-80,80], z∈[-60,42] - turrets placed at edge with small margin
+        const EDGE_MARGIN = 2; // Small margin from absolute edge
         this.TURRET_POSITIONS = [
-            { x: 0, z: 55 },       // Position 1: Bottom center (player default)
-            { x: -50, z: 55 },     // Position 2: Bottom left
-            { x: 50, z: 55 },      // Position 3: Bottom right
-            { x: -75, z: 0 },      // Position 4: Left side
-            { x: 75, z: 0 },       // Position 5: Right side
-            { x: -50, z: -55 },    // Position 6: Top left
-            { x: 0, z: -55 },      // Position 7: Top center
-            { x: 50, z: -55 }      // Position 8: Top right
+            { x: 0, z: this.MAP_BOUNDS.maxZ - EDGE_MARGIN },       // Position 1: Bottom center (player default)
+            { x: -50, z: this.MAP_BOUNDS.maxZ - EDGE_MARGIN },     // Position 2: Bottom left
+            { x: 50, z: this.MAP_BOUNDS.maxZ - EDGE_MARGIN },      // Position 3: Bottom right
+            { x: this.MAP_BOUNDS.minX + EDGE_MARGIN, z: 0 },       // Position 4: Left side
+            { x: this.MAP_BOUNDS.maxX - EDGE_MARGIN, z: 0 },       // Position 5: Right side
+            { x: -50, z: this.MAP_BOUNDS.minZ + EDGE_MARGIN },     // Position 6: Top left
+            { x: 0, z: this.MAP_BOUNDS.minZ + EDGE_MARGIN },       // Position 7: Top center
+            { x: 50, z: this.MAP_BOUNDS.minZ + EDGE_MARGIN }       // Position 8: Top right
         ];
         
         // AI turret management for Single Player mode
