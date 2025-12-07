@@ -122,14 +122,15 @@ class FishingGameEngine {
         this.COLLISION_FUDGE = 0.3;   // Small buffer for network/timestep issues
         
         // Map bounds (ocean area)
+        // Z range reduced by 30% from bottom (maxZ: 60 -> 42) to create gap above BET panel
         this.MAP_BOUNDS = { 
             minX: -80, maxX: 80, 
-            minZ: -60, maxZ: 60 
+            minZ: -60, maxZ: 42 
         };
         
         // Turret positions at the very edge of the pool (8 positions)
         // Each turret faces toward the center of the pool
-        // Pool bounds: x∈[-80,80], z∈[-60,60] - turrets placed at edge with small margin
+        // Pool bounds: x∈[-80,80], z∈[-60,42] - turrets placed at edge with small margin
         const EDGE_MARGIN = 2; // Small margin from absolute edge
         this.TURRET_POSITIONS = [
             { x: 0, z: this.MAP_BOUNDS.maxZ - EDGE_MARGIN },       // Position 1: Bottom center (player default)
