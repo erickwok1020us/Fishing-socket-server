@@ -363,6 +363,48 @@ io.on('connection', (socket) => {
     
     // ============ FISHING GAME SPECIFIC EVENTS ============
     
+    // Start Single Player mode with AI turrets
+    socket.on('startSinglePlayer', async (data) => {
+        const roomCode = `single-${socket.id}-${Date.now()}`;
+        
+        rooms[roomCode] = {
+            hostSocket: socket.id,
+            players: {
+                [socket.id]: {
+                    playerId: 1,
+                    ready: true,
+                    isHost: true,
+                    loaded: false
+                }
+            },
+            playerCount: 1,
+            maxPlayers: 8,
+            gameStarted: true,
+            isSinglePlayer: true
+        };
+        
+        gameEngines[roomCode] = new FishingGameEngine(roomCode);
+        gameEngines[roomCode].addPlayer(socket.id, 1);
+        
+        // Initialize 7 AI turrets for Single Player mode
+        gameEngines[roomCode].initializeAITurrets();
+        
+        socket.join(roomCode);
+        socket.roomCode = roomCode;
+        
+        console.log(`[SINGLE-PLAYER] Created single player room: ${roomCode} with 7 AI turrets`);
+        
+        socket.emit('singlePlayerStarted', { 
+            roomCode, 
+            playerId: 1,
+            turretPosition: gameEngines[roomCode].TURRET_POSITIONS[0],
+            aiTurretCount: 7
+        });
+        
+        // Start the game loop immediately
+        gameEngines[roomCode].startGameLoop(io);
+    });
+    
     // Player shoots a bullet
     socket.on('shoot', (data) => {
         const { roomCode, targetX, targetZ } = data;
