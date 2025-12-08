@@ -31,180 +31,304 @@ const { monitorEventLoopDelay, performance } = require('perf_hooks');
  * - Reward = bet × multiplier
  */
 
-const SCI_FI_UNITS = {
-    // ============ NORMAL TIER (70% spawn rate during normal waves) ============
-    // Small, fast, easy to kill - bread and butter targets
+/**
+ * FISH SPECIES SYSTEM (Industry Standard - Ocean King / Jili Style)
+ * Based on market research: Ocean King, Jili Jackpot Fishing, Fish Catch
+ * 
+ * Categories:
+ * - SMALL: 2x-10x multiplier, 1-3 HP, 60% spawn rate
+ * - MEDIUM: 15x-50x multiplier, 5-10 HP, 30% spawn rate
+ * - LARGE: 60x-200x multiplier, 15-30 HP, 8% spawn rate
+ * - BOSS: 250x-1000x multiplier, 50-100 HP, 2% spawn rate (or triggered)
+ * - SPECIAL: Trigger special events and bonuses
+ */
+
+const FISH_SPECIES = {
+    // ============ SMALL FISH (60% spawn rate) ============
+    // Low value, high frequency - maintain player capital
     
-    SCOUT_DRONE: { 
-        id: 1, 
-        name: 'Scout Drone', 
+    CLOWNFISH: {
+        id: 1,
+        name: 'Clownfish',
+        category: 'small',
         tier: 'normal',
-        health: 1, 
-        multiplier: 2,  // 2x bet reward
-        speed: 35, 
-        size: 0.8, 
-        spawnWeight: 25,
-        color: 0x00FFFF,  // Cyan
-        description: 'Small reconnaissance drone'
-    },
-    ENERGY_ORB: { 
-        id: 2, 
-        name: 'Energy Orb', 
-        tier: 'normal',
-        health: 1, 
-        multiplier: 3, 
-        speed: 40, 
-        size: 0.6, 
+        health: 1,
+        multiplier: 2,
+        speed: 100,
+        size: 0.8,
         spawnWeight: 20,
-        color: 0xFF00FF,  // Magenta
-        description: 'Floating energy sphere'
+        color: 0xFF6600,  // Orange with white stripes
+        movementPattern: 'straight',
+        description: 'Common clownfish - easy target'
     },
-    NANO_SWARM: { 
-        id: 3, 
-        name: 'Nano Swarm', 
+    SARDINE: {
+        id: 2,
+        name: 'Sardine',
+        category: 'small',
         tier: 'normal',
-        health: 2, 
-        multiplier: 4, 
-        speed: 30, 
-        size: 1.0, 
+        health: 1,
+        multiplier: 3,
+        speed: 120,
+        size: 0.6,
+        spawnWeight: 18,
+        color: 0xC0C0C0,  // Silver
+        movementPattern: 'straight',
+        description: 'Fast-swimming sardine'
+    },
+    MULLET: {
+        id: 3,
+        name: 'Mullet',
+        category: 'small',
+        tier: 'normal',
+        health: 2,
+        multiplier: 5,
+        speed: 80,
+        size: 1.0,
         spawnWeight: 15,
-        color: 0x00FF00,  // Green
-        description: 'Cluster of nanobots'
+        color: 0x808080,  // Gray
+        movementPattern: 'curve',
+        description: 'Gray mullet with curved path'
     },
-    PLASMA_FISH: { 
-        id: 4, 
-        name: 'Plasma Fish', 
+    BUTTERFLY_FISH: {
+        id: 4,
+        name: 'Butterfly Fish',
+        category: 'small',
         tier: 'normal',
-        health: 2, 
-        multiplier: 5, 
-        speed: 28, 
-        size: 1.2, 
-        spawnWeight: 10,
+        health: 2,
+        multiplier: 8,
+        speed: 70,
+        size: 1.0,
+        spawnWeight: 12,
         color: 0xFFFF00,  // Yellow
-        description: 'Bio-mechanical fish with plasma core'
+        movementPattern: 'curve',
+        description: 'Colorful butterfly fish'
+    },
+    ANGELFISH: {
+        id: 5,
+        name: 'Angelfish',
+        category: 'small',
+        tier: 'normal',
+        health: 3,
+        multiplier: 10,
+        speed: 60,
+        size: 1.2,
+        spawnWeight: 10,
+        color: 0x00BFFF,  // Deep sky blue
+        movementPattern: 'curve',
+        description: 'Elegant angelfish'
     },
     
-    // ============ MEDIUM TIER (25% spawn rate during normal waves) ============
-    // Larger targets, more HP, better rewards
+    // ============ MEDIUM FISH (30% spawn rate) ============
+    // Medium value, strategic targets
     
-    MECH_SHARK: { 
-        id: 5, 
-        name: 'Mech Shark', 
+    LIONFISH: {
+        id: 6,
+        name: 'Lionfish',
+        category: 'medium',
         tier: 'medium',
-        health: 5, 
-        multiplier: 10, 
-        speed: 45, 
-        size: 2.5, 
+        health: 5,
+        multiplier: 15,
+        speed: 50,
+        size: 1.8,
+        spawnWeight: 8,
+        color: 0xFF4500,  // Red-orange with stripes
+        movementPattern: 's_curve',
+        description: 'Venomous lionfish with spines'
+    },
+    FUGU: {
+        id: 7,
+        name: 'Fugu (Pufferfish)',
+        category: 'medium',
+        tier: 'medium',
+        health: 6,
+        multiplier: 20,
+        speed: 40,
+        size: 2.0,
         spawnWeight: 6,
-        color: 0x708090,  // Steel gray
-        description: 'Armored mechanical predator'
+        color: 0xFFA500,  // Orange
+        movementPattern: 's_curve',
+        description: 'Inflatable pufferfish'
     },
-    CYBER_JELLYFISH: { 
-        id: 6, 
-        name: 'Cyber Jellyfish', 
+    BARRACUDA: {
+        id: 8,
+        name: 'Barracuda',
+        category: 'medium',
         tier: 'medium',
-        health: 4, 
-        multiplier: 8, 
-        speed: 15, 
-        size: 2.0, 
-        spawnWeight: 5,
-        color: 0x9400D3,  // Purple
-        description: 'Floating cyber organism with tentacles'
-    },
-    TORPEDO_RAY: { 
-        id: 7, 
-        name: 'Torpedo Ray', 
-        tier: 'medium',
-        health: 6, 
-        multiplier: 12, 
-        speed: 50, 
-        size: 2.8, 
+        health: 10,
+        multiplier: 50,
+        speed: 90,
+        size: 2.5,
         spawnWeight: 4,
-        color: 0x4169E1,  // Royal blue
-        description: 'High-speed manta-shaped drone'
+        color: 0x4682B4,  // Steel blue
+        movementPattern: 'straight_fast',
+        description: 'Fast predatory barracuda'
     },
-    CRYSTAL_CRAB: { 
-        id: 8, 
-        name: 'Crystal Crab', 
-        tier: 'medium',
-        health: 8, 
-        multiplier: 15, 
-        speed: 12, 
-        size: 2.2, 
+    
+    // ============ LARGE FISH (8% spawn rate) ============
+    // High value, low frequency - high-risk high-reward
+    
+    SHARK: {
+        id: 9,
+        name: 'Shark',
+        category: 'large',
+        tier: 'large',
+        health: 15,
+        multiplier: 60,
+        speed: 55,
+        size: 3.5,
         spawnWeight: 3,
-        color: 0x00CED1,  // Dark cyan
-        description: 'Armored crab with crystal shell'
+        color: 0x708090,  // Slate gray
+        movementPattern: 'wide_arc',
+        description: 'Dangerous great white shark'
     },
-    VOID_SERPENT: { 
-        id: 9, 
-        name: 'Void Serpent', 
-        tier: 'medium',
-        health: 7, 
-        multiplier: 20, 
-        speed: 25, 
-        size: 3.0, 
+    OCTOPUS: {
+        id: 10,
+        name: 'Octopus',
+        category: 'large',
+        tier: 'large',
+        health: 20,
+        multiplier: 100,
+        speed: 35,
+        size: 3.0,
         spawnWeight: 2,
-        color: 0x8B008B,  // Dark magenta
-        description: 'Long serpentine energy creature'
+        color: 0x800080,  // Purple
+        movementPattern: 'zigzag',
+        description: 'Eight-armed octopus'
+    },
+    MERMAID: {
+        id: 11,
+        name: 'Mermaid',
+        category: 'large',
+        tier: 'large',
+        health: 25,
+        multiplier: 150,
+        speed: 45,
+        size: 3.5,
+        spawnWeight: 1.5,
+        color: 0x00CED1,  // Dark cyan / teal
+        movementPattern: 'graceful',
+        description: 'Mythical mermaid - high value'
+    },
+    KILLER_WHALE: {
+        id: 12,
+        name: 'Killer Whale',
+        category: 'large',
+        tier: 'large',
+        health: 30,
+        multiplier: 200,
+        speed: 50,
+        size: 4.5,
+        spawnWeight: 1,
+        color: 0x000000,  // Black with white patches
+        movementPattern: 'wide_arc',
+        description: 'Massive orca - top predator'
     },
     
-    // ============ BOSS TIER (Only spawn during boss waves) ============
-    // Massive HP, huge rewards, special VFX triggers
+    // ============ BOSS FISH (2% spawn rate or triggered) ============
+    // Ultra rare, massive rewards, jackpot potential
     
-    MECHA_KRAKEN: { 
-        id: 10, 
-        name: 'Mecha Kraken', 
+    GOLDEN_DRAGON: {
+        id: 13,
+        name: 'Golden Dragon',
+        category: 'boss',
         tier: 'boss',
-        health: 50, 
-        multiplier: 50, 
-        speed: 8, 
-        size: 6.0, 
-        spawnWeight: 0,  // Only spawns during boss waves
-        isBoss: true,
-        color: 0xFF4500,  // Orange red
-        description: 'Massive mechanical squid with laser tentacles'
-    },
-    ENERGY_DRAGON: { 
-        id: 11, 
-        name: 'Energy Dragon', 
-        tier: 'boss',
-        health: 80, 
-        multiplier: 100, 
-        speed: 15, 
-        size: 8.0, 
-        spawnWeight: 0,
+        health: 50,
+        multiplier: 250,
+        speed: 40,
+        size: 6.0,
+        spawnWeight: 0.3,
         isBoss: true,
         color: 0xFFD700,  // Gold
-        description: 'Ancient energy being in dragon form'
+        movementPattern: 'complex',
+        description: 'Legendary golden dragon'
     },
-    REACTOR_CORE: { 
-        id: 12, 
-        name: 'Reactor Core', 
+    GIANT_FISH_MONSTER: {
+        id: 14,
+        name: 'Giant Fish Monster',
+        category: 'boss',
         tier: 'boss',
-        health: 100, 
-        multiplier: 150, 
-        speed: 5, 
-        size: 5.0, 
-        spawnWeight: 0,
+        health: 80,
+        multiplier: 500,
+        speed: 30,
+        size: 8.0,
+        spawnWeight: 0.15,
         isBoss: true,
-        color: 0x00FF7F,  // Spring green
-        description: 'Unstable fusion reactor - massive explosion on death'
+        color: 0x8B0000,  // Dark red
+        movementPattern: 'complex',
+        description: 'Terrifying deep sea monster'
     },
-    QUANTUM_LEVIATHAN: { 
-        id: 13, 
-        name: 'Quantum Leviathan', 
+    SEA_KING: {
+        id: 15,
+        name: 'Sea King',
+        category: 'boss',
         tier: 'boss',
-        health: 150, 
-        multiplier: 200, 
-        speed: 10, 
-        size: 10.0, 
-        spawnWeight: 0,
+        health: 100,
+        multiplier: 1000,
+        speed: 25,
+        size: 10.0,
+        spawnWeight: 0.05,
         isBoss: true,
         isLegendary: true,
-        color: 0xE6E6FA,  // Lavender (shifts colors)
-        description: 'Reality-warping cosmic entity - JACKPOT BOSS'
+        color: 0x00FF7F,  // Spring green with crown
+        movementPattern: 'majestic',
+        description: 'JACKPOT BOSS - King of the Ocean'
+    },
+    
+    // ============ SPECIAL FEATURE FISH ============
+    // Trigger special events and bonuses
+    
+    BOMB_CRAB: {
+        id: 16,
+        name: 'Bomb Crab',
+        category: 'special',
+        tier: 'special',
+        health: 5,
+        multiplier: 30,
+        speed: 25,
+        size: 1.5,
+        spawnWeight: 1,
+        isSpecial: true,
+        specialType: 'bomb',
+        color: 0xFF0000,  // Red
+        movementPattern: 'slow',
+        description: 'Explodes and damages nearby fish'
+    },
+    LASER_CRAB: {
+        id: 17,
+        name: 'Laser Crab',
+        category: 'special',
+        tier: 'special',
+        health: 6,
+        multiplier: 35,
+        speed: 20,
+        size: 1.8,
+        spawnWeight: 0.8,
+        isSpecial: true,
+        specialType: 'laser',
+        color: 0x00FFFF,  // Cyan
+        movementPattern: 'slow',
+        description: 'Shoots laser across screen when killed'
+    },
+    GOLDFISH: {
+        id: 18,
+        name: 'Goldfish',
+        category: 'special',
+        tier: 'special',
+        health: 3,
+        multiplier: 250,
+        speed: 80,
+        size: 1.2,
+        spawnWeight: 0.5,
+        isSpecial: true,
+        specialType: 'bonus',
+        color: 0xFFD700,  // Gold
+        movementPattern: 'erratic',
+        description: 'Triggers bonus round when caught'
     }
 };
+
+// Backward compatibility alias
+const SCI_FI_UNITS = FISH_SPECIES;
 
 // Backward compatibility alias
 const FISH_TYPES = SCI_FI_UNITS;
@@ -331,7 +455,7 @@ class FishingGameEngine {
         this.killsSinceLastBoss = 0;
         this.killsToTriggerBoss = 50; // Trigger boss wave after 50 kills
         this.currentBoss = null; // Track active boss
-        this.bossTypes = ['MECHA_KRAKEN', 'ENERGY_DRAGON', 'REACTOR_CORE', 'QUANTUM_LEVIATHAN'];
+        this.bossTypes = ['GOLDEN_DRAGON', 'GIANT_FISH_MONSTER', 'SEA_KING'];
         
         ensureEventLoopMonitors();
         
@@ -623,16 +747,14 @@ class FishingGameEngine {
             }
         }
         
-        return FISH_TYPES.SMALL_FISH; // Fallback
+        return FISH_SPECIES.CLOWNFISH; // Fallback
     }
     
     /**
-     * Generate random fish path (movement pattern)
+     * Generate fish path based on movement pattern
+     * Supports: straight, curve, s_curve, zigzag, wide_arc, graceful, complex, majestic, erratic, slow
      */
-    generateFishPath() {
-        const patterns = ['straight', 'sine', 'zigzag', 'circle'];
-        const pattern = patterns[Math.floor(Math.random() * patterns.length)];
-        
+    generateFishPath(movementPattern = 'straight') {
         // Fish enter from sides or top, swim across
         const enterSide = Math.random();
         let startX, startZ, targetX, targetZ;
@@ -657,7 +779,72 @@ class FishingGameEngine {
             targetZ = this.MAP_BOUNDS.maxZ + 10;
         }
         
-        return { startX, startZ, targetX, targetZ, pattern };
+        // Movement pattern parameters
+        let amplitude = 0;      // Wave amplitude for sine/curve patterns
+        let frequency = 0;      // Wave frequency
+        let speedModifier = 1;  // Speed adjustment
+        
+        switch (movementPattern) {
+            case 'straight':
+            case 'straight_fast':
+                amplitude = 0;
+                frequency = 0;
+                speedModifier = movementPattern === 'straight_fast' ? 1.5 : 1;
+                break;
+            case 'curve':
+                amplitude = 15 + Math.random() * 10;
+                frequency = 0.5 + Math.random() * 0.3;
+                break;
+            case 's_curve':
+                amplitude = 20 + Math.random() * 15;
+                frequency = 1 + Math.random() * 0.5;
+                break;
+            case 'zigzag':
+                amplitude = 25 + Math.random() * 15;
+                frequency = 2 + Math.random() * 1;
+                break;
+            case 'wide_arc':
+                amplitude = 40 + Math.random() * 20;
+                frequency = 0.3 + Math.random() * 0.2;
+                speedModifier = 0.8;
+                break;
+            case 'graceful':
+                amplitude = 30 + Math.random() * 10;
+                frequency = 0.4 + Math.random() * 0.2;
+                speedModifier = 0.7;
+                break;
+            case 'complex':
+                amplitude = 35 + Math.random() * 20;
+                frequency = 0.8 + Math.random() * 0.4;
+                speedModifier = 0.6;
+                break;
+            case 'majestic':
+                amplitude = 50 + Math.random() * 20;
+                frequency = 0.2 + Math.random() * 0.1;
+                speedModifier = 0.5;
+                break;
+            case 'erratic':
+                amplitude = 20 + Math.random() * 30;
+                frequency = 3 + Math.random() * 2;
+                speedModifier = 1.2;
+                break;
+            case 'slow':
+                amplitude = 10 + Math.random() * 10;
+                frequency = 0.3 + Math.random() * 0.2;
+                speedModifier = 0.5;
+                break;
+            default:
+                amplitude = 0;
+                frequency = 0;
+        }
+        
+        return { 
+            startX, startZ, targetX, targetZ, 
+            pattern: movementPattern,
+            amplitude,
+            frequency,
+            speedModifier
+        };
     }
     
     /**
@@ -672,14 +859,16 @@ class FishingGameEngine {
         if (forceBoss || (this.bossWaveActive && !this.currentBoss)) {
             // Spawn a boss during boss wave
             const bossKey = this.bossTypes[Math.floor(Math.random() * this.bossTypes.length)];
-            fishType = SCI_FI_UNITS[bossKey];
+            fishType = FISH_SPECIES[bossKey];
             this.currentBoss = this.nextFishId; // Track boss ID
             console.log(`[FISHING-ENGINE] BOSS WAVE: Spawning ${fishType.name}!`);
         } else {
             fishType = this.getRandomFishType();
         }
         
-        const path = this.generateFishPath();
+        // Generate path based on fish's movement pattern
+        const movementPattern = fishType.movementPattern || 'straight';
+        const path = this.generateFishPath(movementPattern);
         const fishId = this.nextFishId++;
         
         const dx = path.targetX - path.startX;
@@ -688,34 +877,41 @@ class FishingGameEngine {
         const normalizedDx = dx / distance;
         const normalizedDz = dz / distance;
         
+        // Apply speed modifier from movement pattern
+        const effectiveSpeed = fishType.speed * (path.speedModifier || 1);
+        
         const fish = {
             fishId,
             typeId: fishType.id,
             typeName: fishType.name,
+            category: fishType.category || 'small',
             tier: fishType.tier || 'normal',
             health: fishType.health,
             maxHealth: fishType.health,
             multiplier: fishType.multiplier || fishType.baseReward || 2,
             baseReward: fishType.multiplier || fishType.baseReward || 2, // Backward compatibility
-            speed: fishType.speed,
+            speed: effectiveSpeed,
             size: fishType.size,
             color: fishType.color || 0x00FFFF,
             isBoss: fishType.isBoss || false,
             isLegendary: fishType.isLegendary || false,
+            isSpecial: fishType.isSpecial || false,
+            specialType: fishType.specialType || null,
             
             // Position and movement
             x: path.startX,
             z: path.startZ,
             targetX: path.targetX,
             targetZ: path.targetZ,
-            velocityX: normalizedDx * fishType.speed,
-            velocityZ: normalizedDz * fishType.speed,
+            velocityX: normalizedDx * effectiveSpeed,
+            velocityZ: normalizedDz * effectiveSpeed,
             rotation: Math.atan2(dx, dz),
             
-            // Path pattern
+            // Path pattern with new parameters
             pattern: path.pattern,
             patternPhase: Math.random() * Math.PI * 2,
-            patternAmplitude: 5 + Math.random() * 10,
+            patternAmplitude: path.amplitude || 5 + Math.random() * 10,
+            patternFrequency: path.frequency || 0.5,
             
             spawnTime: Date.now()
         };
@@ -726,6 +922,8 @@ class FishingGameEngine {
             console.log(`[FISHING-ENGINE] BOSS SPAWNED: ${fishType.name} (ID: ${fishId}, HP: ${fishType.health}, Multiplier: ${fishType.multiplier}x)`);
         } else if (fishType.isLegendary) {
             console.log(`[FISHING-ENGINE] LEGENDARY SPAWNED: ${fishType.name} (ID: ${fishId})`);
+        } else if (fishType.isSpecial) {
+            console.log(`[FISHING-ENGINE] SPECIAL FISH: ${fishType.name} (ID: ${fishId}, Type: ${fishType.specialType})`);
         }
         
         return fish;
