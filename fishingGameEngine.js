@@ -18,27 +18,196 @@
 const { monitorEventLoopDelay, performance } = require('perf_hooks');
 
 /**
- * Fish type definitions with casino-style rewards
+ * SCI-FI OCEAN UNIT CONFIGURATION
+ * All units are sci-fi themed: drones, mech-fish, energy creatures, and bosses
+ * 
+ * Tiers:
+ * - NORMAL: Small drones/energy orbs, low HP, high spawn rate, 2x-5x multiplier
+ * - MEDIUM: Larger mech-fish, medium HP, interesting movement, 5x-20x multiplier  
+ * - BOSS: Massive sci-fi creatures, high HP, special VFX, 50x-200x multiplier
+ * 
+ * Casino Structure:
+ * - Bet levels: 1, 10, 100
+ * - Reward = bet × multiplier
  */
-const FISH_TYPES = {
-    // Common fish (60% spawn rate)
-    SMALL_FISH: { id: 1, name: 'Small Fish', health: 1, baseReward: 2, speed: 30, size: 1.0, spawnWeight: 20 },
-    CLOWNFISH: { id: 2, name: 'Clownfish', health: 1, baseReward: 3, speed: 35, size: 1.2, spawnWeight: 15 },
-    ANGELFISH: { id: 3, name: 'Angelfish', health: 2, baseReward: 5, speed: 25, size: 1.5, spawnWeight: 15 },
-    BUTTERFLY_FISH: { id: 4, name: 'Butterfly Fish', health: 2, baseReward: 6, speed: 28, size: 1.3, spawnWeight: 10 },
+
+const SCI_FI_UNITS = {
+    // ============ NORMAL TIER (70% spawn rate during normal waves) ============
+    // Small, fast, easy to kill - bread and butter targets
     
-    // Uncommon fish (25% spawn rate)
-    PUFFERFISH: { id: 5, name: 'Pufferfish', health: 3, baseReward: 10, speed: 20, size: 2.0, spawnWeight: 8 },
-    LIONFISH: { id: 6, name: 'Lionfish', health: 4, baseReward: 15, speed: 22, size: 2.2, spawnWeight: 7 },
-    SEAHORSE: { id: 7, name: 'Seahorse', health: 3, baseReward: 12, speed: 15, size: 1.8, spawnWeight: 6 },
+    SCOUT_DRONE: { 
+        id: 1, 
+        name: 'Scout Drone', 
+        tier: 'normal',
+        health: 1, 
+        multiplier: 2,  // 2x bet reward
+        speed: 35, 
+        size: 0.8, 
+        spawnWeight: 25,
+        color: 0x00FFFF,  // Cyan
+        description: 'Small reconnaissance drone'
+    },
+    ENERGY_ORB: { 
+        id: 2, 
+        name: 'Energy Orb', 
+        tier: 'normal',
+        health: 1, 
+        multiplier: 3, 
+        speed: 40, 
+        size: 0.6, 
+        spawnWeight: 20,
+        color: 0xFF00FF,  // Magenta
+        description: 'Floating energy sphere'
+    },
+    NANO_SWARM: { 
+        id: 3, 
+        name: 'Nano Swarm', 
+        tier: 'normal',
+        health: 2, 
+        multiplier: 4, 
+        speed: 30, 
+        size: 1.0, 
+        spawnWeight: 15,
+        color: 0x00FF00,  // Green
+        description: 'Cluster of nanobots'
+    },
+    PLASMA_FISH: { 
+        id: 4, 
+        name: 'Plasma Fish', 
+        tier: 'normal',
+        health: 2, 
+        multiplier: 5, 
+        speed: 28, 
+        size: 1.2, 
+        spawnWeight: 10,
+        color: 0xFFFF00,  // Yellow
+        description: 'Bio-mechanical fish with plasma core'
+    },
     
-    // Rare fish (12% spawn rate)
-    SHARK: { id: 8, name: 'Shark', health: 8, baseReward: 30, speed: 40, size: 4.0, spawnWeight: 4 },
-    MANTA_RAY: { id: 9, name: 'Manta Ray', health: 6, baseReward: 25, speed: 18, size: 3.5, spawnWeight: 3 },
+    // ============ MEDIUM TIER (25% spawn rate during normal waves) ============
+    // Larger targets, more HP, better rewards
     
-    // Legendary fish (3% spawn rate) - Casino jackpot potential
-    GOLDEN_DRAGON: { id: 10, name: 'Golden Dragon', health: 15, baseReward: 100, speed: 25, size: 5.0, spawnWeight: 1, isLegendary: true }
+    MECH_SHARK: { 
+        id: 5, 
+        name: 'Mech Shark', 
+        tier: 'medium',
+        health: 5, 
+        multiplier: 10, 
+        speed: 45, 
+        size: 2.5, 
+        spawnWeight: 6,
+        color: 0x708090,  // Steel gray
+        description: 'Armored mechanical predator'
+    },
+    CYBER_JELLYFISH: { 
+        id: 6, 
+        name: 'Cyber Jellyfish', 
+        tier: 'medium',
+        health: 4, 
+        multiplier: 8, 
+        speed: 15, 
+        size: 2.0, 
+        spawnWeight: 5,
+        color: 0x9400D3,  // Purple
+        description: 'Floating cyber organism with tentacles'
+    },
+    TORPEDO_RAY: { 
+        id: 7, 
+        name: 'Torpedo Ray', 
+        tier: 'medium',
+        health: 6, 
+        multiplier: 12, 
+        speed: 50, 
+        size: 2.8, 
+        spawnWeight: 4,
+        color: 0x4169E1,  // Royal blue
+        description: 'High-speed manta-shaped drone'
+    },
+    CRYSTAL_CRAB: { 
+        id: 8, 
+        name: 'Crystal Crab', 
+        tier: 'medium',
+        health: 8, 
+        multiplier: 15, 
+        speed: 12, 
+        size: 2.2, 
+        spawnWeight: 3,
+        color: 0x00CED1,  // Dark cyan
+        description: 'Armored crab with crystal shell'
+    },
+    VOID_SERPENT: { 
+        id: 9, 
+        name: 'Void Serpent', 
+        tier: 'medium',
+        health: 7, 
+        multiplier: 20, 
+        speed: 25, 
+        size: 3.0, 
+        spawnWeight: 2,
+        color: 0x8B008B,  // Dark magenta
+        description: 'Long serpentine energy creature'
+    },
+    
+    // ============ BOSS TIER (Only spawn during boss waves) ============
+    // Massive HP, huge rewards, special VFX triggers
+    
+    MECHA_KRAKEN: { 
+        id: 10, 
+        name: 'Mecha Kraken', 
+        tier: 'boss',
+        health: 50, 
+        multiplier: 50, 
+        speed: 8, 
+        size: 6.0, 
+        spawnWeight: 0,  // Only spawns during boss waves
+        isBoss: true,
+        color: 0xFF4500,  // Orange red
+        description: 'Massive mechanical squid with laser tentacles'
+    },
+    ENERGY_DRAGON: { 
+        id: 11, 
+        name: 'Energy Dragon', 
+        tier: 'boss',
+        health: 80, 
+        multiplier: 100, 
+        speed: 15, 
+        size: 8.0, 
+        spawnWeight: 0,
+        isBoss: true,
+        color: 0xFFD700,  // Gold
+        description: 'Ancient energy being in dragon form'
+    },
+    REACTOR_CORE: { 
+        id: 12, 
+        name: 'Reactor Core', 
+        tier: 'boss',
+        health: 100, 
+        multiplier: 150, 
+        speed: 5, 
+        size: 5.0, 
+        spawnWeight: 0,
+        isBoss: true,
+        color: 0x00FF7F,  // Spring green
+        description: 'Unstable fusion reactor - massive explosion on death'
+    },
+    QUANTUM_LEVIATHAN: { 
+        id: 13, 
+        name: 'Quantum Leviathan', 
+        tier: 'boss',
+        health: 150, 
+        multiplier: 200, 
+        speed: 10, 
+        size: 10.0, 
+        spawnWeight: 0,
+        isBoss: true,
+        isLegendary: true,
+        color: 0xE6E6FA,  // Lavender (shifts colors)
+        description: 'Reality-warping cosmic entity - JACKPOT BOSS'
+    }
 };
+
+// Backward compatibility alias
+const FISH_TYPES = SCI_FI_UNITS;
 
 // Calculate total spawn weight for probability
 const TOTAL_SPAWN_WEIGHT = Object.values(FISH_TYPES).reduce((sum, fish) => sum + fish.spawnWeight, 0);
@@ -146,11 +315,23 @@ class FishingGameEngine {
         // AI turret management for Single Player mode
         this.aiTurrets = new Map(); // playerId -> AI turret data
         this.isSinglePlayer = false;
-        this.AI_ACCURACY = 0.6; // 60% accurate shots, 40% miss
-        this.AI_MISS_ANGLE_MIN = 10; // Minimum miss angle in degrees
-        this.AI_MISS_ANGLE_MAX = 25; // Maximum miss angle in degrees
+        this.AI_ACCURACY = 0.6; // 60% accurate shots (50-70% effective hit rate)
+        this.AI_MISS_ANGLE_MIN = 8; // Minimum miss angle in degrees
+        this.AI_MISS_ANGLE_MAX = 20; // Maximum miss angle in degrees
         this.AI_SHOT_INTERVAL_MIN = 800; // Minimum time between AI shots (ms)
         this.AI_SHOT_INTERVAL_MAX = 2000; // Maximum time between AI shots (ms)
+        
+        // ============ BOSS WAVE SYSTEM ============
+        // Boss waves trigger periodically and spawn powerful bosses
+        this.bossWaveActive = false;
+        this.bossWaveStartTime = 0;
+        this.bossWaveDuration = 30000; // Boss wave lasts 30 seconds
+        this.normalWaveDuration = 60000; // Normal wave lasts 60 seconds before boss wave
+        this.lastWaveChange = 0;
+        this.killsSinceLastBoss = 0;
+        this.killsToTriggerBoss = 50; // Trigger boss wave after 50 kills
+        this.currentBoss = null; // Track active boss
+        this.bossTypes = ['MECHA_KRAKEN', 'ENERGY_DRAGON', 'REACTOR_CORE', 'QUANTUM_LEVIATHAN'];
         
         ensureEventLoopMonitors();
         
@@ -480,12 +661,24 @@ class FishingGameEngine {
     }
     
     /**
-     * Spawn a new fish
+     * Spawn a new fish/unit
+     * During boss waves, spawns boss units instead of normal units
      */
-    spawnFish() {
+    spawnFish(forceBoss = false) {
         if (this.fish.size >= this.maxFish) return null;
         
-        const fishType = this.getRandomFishType();
+        // Determine unit type based on wave state
+        let fishType;
+        if (forceBoss || (this.bossWaveActive && !this.currentBoss)) {
+            // Spawn a boss during boss wave
+            const bossKey = this.bossTypes[Math.floor(Math.random() * this.bossTypes.length)];
+            fishType = SCI_FI_UNITS[bossKey];
+            this.currentBoss = this.nextFishId; // Track boss ID
+            console.log(`[FISHING-ENGINE] BOSS WAVE: Spawning ${fishType.name}!`);
+        } else {
+            fishType = this.getRandomFishType();
+        }
+        
         const path = this.generateFishPath();
         const fishId = this.nextFishId++;
         
@@ -499,11 +692,15 @@ class FishingGameEngine {
             fishId,
             typeId: fishType.id,
             typeName: fishType.name,
+            tier: fishType.tier || 'normal',
             health: fishType.health,
             maxHealth: fishType.health,
-            baseReward: fishType.baseReward,
+            multiplier: fishType.multiplier || fishType.baseReward || 2,
+            baseReward: fishType.multiplier || fishType.baseReward || 2, // Backward compatibility
             speed: fishType.speed,
             size: fishType.size,
+            color: fishType.color || 0x00FFFF,
+            isBoss: fishType.isBoss || false,
             isLegendary: fishType.isLegendary || false,
             
             // Position and movement
@@ -525,11 +722,80 @@ class FishingGameEngine {
         
         this.fish.set(fishId, fish);
         
-        if (fishType.isLegendary) {
-            console.log(`[FISHING-ENGINE] LEGENDARY FISH SPAWNED: ${fishType.name} (ID: ${fishId})`);
+        if (fishType.isBoss) {
+            console.log(`[FISHING-ENGINE] BOSS SPAWNED: ${fishType.name} (ID: ${fishId}, HP: ${fishType.health}, Multiplier: ${fishType.multiplier}x)`);
+        } else if (fishType.isLegendary) {
+            console.log(`[FISHING-ENGINE] LEGENDARY SPAWNED: ${fishType.name} (ID: ${fishId})`);
         }
         
         return fish;
+    }
+    
+    /**
+     * Check and update boss wave state
+     * Called every game tick
+     */
+    updateBossWaveState() {
+        const now = Date.now();
+        
+        // Initialize wave timer on first call
+        if (this.lastWaveChange === 0) {
+            this.lastWaveChange = now;
+        }
+        
+        if (this.bossWaveActive) {
+            // Check if boss wave should end
+            if (now - this.bossWaveStartTime > this.bossWaveDuration || !this.currentBoss) {
+                this.endBossWave();
+            }
+        } else {
+            // Check if boss wave should start
+            const timeSinceLastWave = now - this.lastWaveChange;
+            const shouldTriggerByTime = timeSinceLastWave > this.normalWaveDuration;
+            const shouldTriggerByKills = this.killsSinceLastBoss >= this.killsToTriggerBoss;
+            
+            if (shouldTriggerByTime || shouldTriggerByKills) {
+                this.startBossWave();
+            }
+        }
+    }
+    
+    /**
+     * Start a boss wave
+     */
+    startBossWave() {
+        this.bossWaveActive = true;
+        this.bossWaveStartTime = Date.now();
+        this.killsSinceLastBoss = 0;
+        console.log('[FISHING-ENGINE] === BOSS WAVE STARTED ===');
+        
+        // Spawn the boss immediately
+        this.spawnFish(true);
+    }
+    
+    /**
+     * End the boss wave
+     */
+    endBossWave() {
+        this.bossWaveActive = false;
+        this.currentBoss = null;
+        this.lastWaveChange = Date.now();
+        console.log('[FISHING-ENGINE] === BOSS WAVE ENDED ===');
+    }
+    
+    /**
+     * Track kills for boss wave trigger
+     */
+    onFishKilled(fish) {
+        if (!fish.isBoss) {
+            this.killsSinceLastBoss++;
+        } else {
+            // Boss was killed - end boss wave
+            if (fish.fishId === this.currentBoss) {
+                console.log(`[FISHING-ENGINE] BOSS DEFEATED: ${fish.typeName}!`);
+                this.currentBoss = null;
+            }
+        }
     }
     
     /**
@@ -623,9 +889,12 @@ class FishingGameEngine {
     
     /**
      * Calculate reward with multipliers
+     * Uses new sci-fi unit multiplier system: reward = bet × multiplier
      */
     calculateReward(fish, player, betAmount) {
-        let reward = fish.baseReward * betAmount;
+        // Use multiplier field (sci-fi units) or fallback to baseReward (legacy)
+        const unitMultiplier = fish.multiplier || fish.baseReward || 2;
+        let reward = unitMultiplier * betAmount;
         
         // Combo multiplier
         const now = Date.now();
@@ -640,19 +909,25 @@ class FishingGameEngine {
         const comboMultiplier = Math.min(2.0, 1 + (player.combo - 1) * 0.1);
         reward = Math.floor(reward * comboMultiplier);
         
-        // Legendary fish jackpot chance
+        // Boss kill bonus - extra jackpot contribution
         let jackpotWin = 0;
-        if (fish.isLegendary && Math.random() < 0.1) { // 10% chance on legendary kill
-            jackpotWin = this.jackpot;
-            this.jackpot = 1000; // Reset jackpot
+        if (fish.isBoss) {
+            // Bosses always have a chance to trigger jackpot
+            const jackpotChance = fish.isLegendary ? 0.25 : 0.1; // 25% for legendary boss, 10% for regular boss
+            if (Math.random() < jackpotChance) {
+                jackpotWin = this.jackpot;
+                this.jackpot = 1000; // Reset jackpot
+            }
         }
         
         return {
-            baseReward: fish.baseReward * betAmount,
+            baseReward: unitMultiplier * betAmount,
+            multiplier: unitMultiplier,
             comboMultiplier,
             combo: player.combo,
             finalReward: reward,
-            jackpotWin
+            jackpotWin,
+            isBossKill: fish.isBoss || false
         };
     }
     
@@ -720,6 +995,9 @@ class FishingGameEngine {
                 
                 // Update AI turrets (Single Player mode)
                 this.updateAITurrets(io);
+                
+                // Update boss wave state
+                this.updateBossWaveState();
                 
                 // Spawn new fish periodically
                 const nowMs = Date.now();
@@ -878,11 +1156,14 @@ class FishingGameEngine {
                             owner.coins += reward.finalReward + reward.jackpotWin;
                             owner.totalWinnings += reward.finalReward + reward.jackpotWin;
                             
-                            // Broadcast fish killed
+                            // Broadcast fish killed with sci-fi unit info
                             io.to(this.roomCode).emit('fishKilled', {
                                 fishId,
                                 fishType: fish.typeName,
-                                isLegendary: fish.isLegendary,
+                                tier: fish.tier || 'normal',
+                                multiplier: reward.multiplier,
+                                isBoss: fish.isBoss || false,
+                                isLegendary: fish.isLegendary || false,
                                 killerId: owner.playerId,
                                 reward: reward.finalReward,
                                 combo: reward.combo,
@@ -913,6 +1194,9 @@ class FishingGameEngine {
                                 });
                             }
                         }
+                        
+                        // Track kill for boss wave system
+                        this.onFishKilled(fish);
                         
                         this.fish.delete(fishId);
                     }
@@ -963,10 +1247,14 @@ class FishingGameEngine {
             fishId: f.fishId,
             typeId: f.typeId,
             typeName: f.typeName,
+            tier: f.tier || 'normal',
             health: f.health,
             maxHealth: f.maxHealth,
+            multiplier: f.multiplier || f.baseReward || 2,
             size: f.size,
-            isLegendary: f.isLegendary,
+            color: f.color || 0x00FFFF,
+            isBoss: f.isBoss || false,
+            isLegendary: f.isLegendary || false,
             x: f.x,
             z: f.z,
             velocityX: f.velocityX,
@@ -1019,7 +1307,10 @@ class FishingGameEngine {
             bullets: bulletsArray,
             players: playersArray,
             jackpot: this.jackpot,
-            isSinglePlayer: this.isSinglePlayer
+            isSinglePlayer: this.isSinglePlayer,
+            bossWaveActive: this.bossWaveActive,
+            killsSinceLastBoss: this.killsSinceLastBoss,
+            killsToTriggerBoss: this.killsToTriggerBoss
         });
     }
     
@@ -1038,4 +1329,4 @@ class FishingGameEngine {
     }
 }
 
-module.exports = { FishingGameEngine, FISH_TYPES };
+module.exports = { FishingGameEngine, FISH_TYPES, SCI_FI_UNITS };
