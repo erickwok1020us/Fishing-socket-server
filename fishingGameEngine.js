@@ -424,13 +424,14 @@ class FishingGameEngine {
         // Turret positions at the edge of the pool (4 positions - arcade cabinet style)
         // Each turret faces toward the center of the pool
         // Pool bounds: x∈[-80,80], z∈[-60,42] - turrets placed at edge with small margin
-        // Layout: Top, Left, Right, Bottom (player at bottom)
+        // Layout: 2 turrets on top (horizontal), 2 turrets on bottom (horizontal)
+        // Positions at 30% and 70% of pool width for symmetric distribution
         const EDGE_MARGIN = 2; // Small margin from absolute edge
         this.TURRET_POSITIONS = [
-            { x: 0, z: this.MAP_BOUNDS.maxZ - EDGE_MARGIN },       // Position 1: Bottom center (player default)
-            { x: 0, z: this.MAP_BOUNDS.minZ + EDGE_MARGIN },       // Position 2: Top center (AI)
-            { x: this.MAP_BOUNDS.minX + EDGE_MARGIN, z: -10 },     // Position 3: Left side (AI)
-            { x: this.MAP_BOUNDS.maxX - EDGE_MARGIN, z: -10 }      // Position 4: Right side (AI)
+            { x: -31, z: this.MAP_BOUNDS.maxZ - EDGE_MARGIN },     // Position 1: Bottom left (player default)
+            { x: 31, z: this.MAP_BOUNDS.maxZ - EDGE_MARGIN },      // Position 2: Bottom right (AI)
+            { x: -31, z: this.MAP_BOUNDS.minZ + EDGE_MARGIN },     // Position 3: Top left (AI)
+            { x: 31, z: this.MAP_BOUNDS.minZ + EDGE_MARGIN }       // Position 4: Top right (AI)
         ];
         
         // AI turret management for Single Player mode
