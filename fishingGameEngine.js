@@ -421,19 +421,16 @@ class FishingGameEngine {
             minZ: -60, maxZ: 42 
         };
         
-        // Turret positions at the very edge of the pool (8 positions)
+        // Turret positions at the edge of the pool (4 positions - arcade cabinet style)
         // Each turret faces toward the center of the pool
         // Pool bounds: x∈[-80,80], z∈[-60,42] - turrets placed at edge with small margin
+        // Layout: Top, Left, Right, Bottom (player at bottom)
         const EDGE_MARGIN = 2; // Small margin from absolute edge
         this.TURRET_POSITIONS = [
             { x: 0, z: this.MAP_BOUNDS.maxZ - EDGE_MARGIN },       // Position 1: Bottom center (player default)
-            { x: -50, z: this.MAP_BOUNDS.maxZ - EDGE_MARGIN },     // Position 2: Bottom left
-            { x: 50, z: this.MAP_BOUNDS.maxZ - EDGE_MARGIN },      // Position 3: Bottom right
-            { x: this.MAP_BOUNDS.minX + EDGE_MARGIN, z: 0 },       // Position 4: Left side
-            { x: this.MAP_BOUNDS.maxX - EDGE_MARGIN, z: 0 },       // Position 5: Right side
-            { x: -50, z: this.MAP_BOUNDS.minZ + EDGE_MARGIN },     // Position 6: Top left
-            { x: 0, z: this.MAP_BOUNDS.minZ + EDGE_MARGIN },       // Position 7: Top center
-            { x: 50, z: this.MAP_BOUNDS.minZ + EDGE_MARGIN }       // Position 8: Top right
+            { x: 0, z: this.MAP_BOUNDS.minZ + EDGE_MARGIN },       // Position 2: Top center (AI)
+            { x: this.MAP_BOUNDS.minX + EDGE_MARGIN, z: -10 },     // Position 3: Left side (AI)
+            { x: this.MAP_BOUNDS.maxX - EDGE_MARGIN, z: -10 }      // Position 4: Right side (AI)
         ];
         
         // AI turret management for Single Player mode
@@ -513,17 +510,18 @@ class FishingGameEngine {
     
     /**
      * Initialize AI turrets for Single Player mode
-     * Creates 7 AI turrets at positions 2-8 (player is at position 1)
+     * Creates 3 AI turrets at positions 2-4 (player is at position 1)
+     * Layout: Player at bottom, AI at top, left, right
      */
     initializeAITurrets() {
         this.isSinglePlayer = true;
         
-        // Add 7 AI turrets at positions 2-8
-        for (let i = 2; i <= 8; i++) {
+        // Add 3 AI turrets at positions 2-4 (top, left, right)
+        for (let i = 2; i <= 4; i++) {
             this.addPlayer(null, i, true);
         }
         
-        console.log(`[FISHING-ENGINE] Initialized 7 AI turrets for Single Player mode`);
+        console.log(`[FISHING-ENGINE] Initialized 3 AI turrets for Single Player mode (4-seat arcade style)`);
     }
     
     /**
@@ -680,6 +678,9 @@ class FishingGameEngine {
         };
         
         this.bullets.set(bulletId, bullet);
+        
+        // DEBUG: Log AI bullet creation
+        console.log(`[DEBUG-AI-SHOT] bulletId=${bulletId} ai=${ai.playerId} start=(${bullet.x.toFixed(1)},${bullet.z.toFixed(1)}) target=(${targetX.toFixed(1)},${targetZ.toFixed(1)}) vel=(${bullet.velocityX.toFixed(1)},${bullet.velocityZ.toFixed(1)})`);
         
         // Broadcast bullet spawn to all players
         io.to(this.roomCode).emit('bulletSpawned', {
@@ -1063,6 +1064,9 @@ class FishingGameEngine {
         
         this.bullets.set(bulletId, bullet);
         
+        // DEBUG: Log bullet creation
+        console.log(`[DEBUG-SHOT] bulletId=${bulletId} owner=${player.playerId} start=(${bullet.x.toFixed(1)},${bullet.z.toFixed(1)}) target=(${targetX.toFixed(1)},${targetZ.toFixed(1)}) vel=(${bullet.velocityX.toFixed(1)},${bullet.velocityZ.toFixed(1)})`);
+        
         // Broadcast bullet spawn to all players
         io.to(this.roomCode).emit('bulletSpawned', {
             bulletId,
@@ -1277,12 +1281,16 @@ class FishingGameEngine {
         
         for (const [bulletId, bullet] of this.bullets.entries()) {
             if (bullet.hasHit) {
+                // DEBUG: Log bullet removal due to hit
+                console.log(`[DEBUG-DESTROY] bulletId=${bulletId} reason=HIT pos=(${bullet.x.toFixed(1)},${bullet.z.toFixed(1)})`);
                 bulletsToRemove.push(bulletId);
                 continue;
             }
             
             // Check lifetime
             if (now - bullet.spawnTime > this.BULLET_LIFETIME) {
+                // DEBUG: Log bullet removal due to lifetime
+                console.log(`[DEBUG-DESTROY] bulletId=${bulletId} reason=LIFETIME pos=(${bullet.x.toFixed(1)},${bullet.z.toFixed(1)}) age=${now - bullet.spawnTime}ms`);
                 bulletsToRemove.push(bulletId);
                 continue;
             }
@@ -1297,6 +1305,8 @@ class FishingGameEngine {
             
             // Remove if out of bounds
             if (Math.abs(bullet.x) > 100 || Math.abs(bullet.z) > 80) {
+                // DEBUG: Log bullet removal due to out of bounds
+                console.log(`[DEBUG-DESTROY] bulletId=${bulletId} reason=OUT_OF_BOUNDS pos=(${bullet.x.toFixed(1)},${bullet.z.toFixed(1)})`);
                 bulletsToRemove.push(bulletId);
             }
         }
@@ -1327,6 +1337,9 @@ class FishingGameEngine {
                 );
                 
                 if (hit) {
+                    // DEBUG: Log hit detection
+                    console.log(`[DEBUG-HIT] bulletId=${bulletId} fishId=${fishId} bullet=(${bullet.x.toFixed(1)},${bullet.z.toFixed(1)}) fish=(${fish.x.toFixed(1)},${fish.z.toFixed(1)}) hitRadius=${hitRadius.toFixed(2)} isAI=${bullet.isAIBullet || false}`);
+                    
                     bullet.hasHit = true;
                     fish.health--;
                     
