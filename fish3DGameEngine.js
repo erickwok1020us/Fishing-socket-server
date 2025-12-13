@@ -5,7 +5,7 @@
  * Features:
  * - Server-authoritative fish spawning and movement (2D plane, Y is visual only)
  * - 4-player support with positioned cannons
- * - Last-hit-wins kill attribution
+ * - Pure Contribution-Based reward system (rewards distributed by damage percentage)
  * - Boss fish system
  * - Weapon multipliers (1x, 3x, 5x, 8x, 20x)
  * - Seeded RNG for deterministic fish spawning
@@ -791,25 +791,78 @@ class Fish3DGameEngine {
     }
     
     /**
-     * Handle fish kill (last-hit-wins)
+     * Handle fish kill (Pure Contribution-Based reward system)
+     * Rewards are distributed proportionally based on damage dealt by each player
      */
     handleFishKill(fish, bullet, io) {
         fish.isAlive = false;
         
-        const killer = this.players.get(fish.lastHitBy);
-        if (!killer) {
+        // Calculate total damage dealt to this fish
+        let totalDamage = 0;
+        for (const [socketId, damage] of fish.damageByPlayer) {
+            totalDamage += damage;
+        }
+        
+        if (totalDamage === 0) {
             this.fish.delete(fish.fishId);
             return;
         }
         
-        // Calculate reward: multiplier * weapon cost
+        // Calculate base reward: fish multiplier * weapon multiplier of killing blow
         const weapon = WEAPONS[bullet.weapon];
-        const reward = fish.multiplier * weapon.multiplier;
+        const baseReward = fish.multiplier * weapon.multiplier;
         
-        // Award to killer
-        killer.balance += reward;
-        killer.score += reward;
-        killer.totalKills++;
+        // Track rewards for broadcasting
+        const rewardDistribution = [];
+        
+        // Distribute rewards proportionally to all contributors
+        for (const [socketId, damage] of fish.damageByPlayer) {
+            const player = this.players.get(socketId);
+            if (!player) continue;
+            
+            // Calculate this player's share based on damage contribution percentage
+            const contributionPercent = damage / totalDamage;
+            const playerReward = Math.round(baseReward * contributionPercent);
+            
+            if (playerReward > 0) {
+                // Award to contributor
+                player.balance += playerReward;
+                player.score += playerReward;
+                
+                // Track contribution for stats (only count as kill for highest contributor)
+                rewardDistribution.push({
+                    playerId: player.playerId,
+                    socketId: socketId,
+                    damage: damage,
+                    percent: Math.round(contributionPercent * 100),
+                    reward: playerReward
+                });
+                
+                // Send balance update to this player
+                io.to(socketId).emit('balanceUpdate', {
+                    balance: player.balance,
+                    change: playerReward,
+                    reason: 'contribution',
+                    fishType: fish.typeName,
+                    contributionPercent: Math.round(contributionPercent * 100)
+                });
+            }
+        }
+        
+        // Find highest contributor for kill credit
+        let topContributor = null;
+        let maxDamage = 0;
+        for (const [socketId, damage] of fish.damageByPlayer) {
+            if (damage > maxDamage) {
+                maxDamage = damage;
+                topContributor = this.players.get(socketId);
+            }
+        }
+        
+        // Award kill credit to top contributor
+        if (topContributor) {
+            topContributor.totalKills++;
+        }
         
         // Track boss kills
         if (fish.isBoss) {
@@ -817,33 +870,25 @@ class Fish3DGameEngine {
             if (fish.fishId === this.currentBoss) {
                 this.currentBoss = null;
             }
-            console.log(`[FISH3D-ENGINE] BOSS KILLED: ${fish.typeName} by Player ${killer.playerId} for ${reward} coins!`);
+            console.log(`[FISH3D-ENGINE] BOSS KILLED: ${fish.typeName} - Rewards distributed to ${rewardDistribution.length} players`);
         } else {
             this.killsSinceLastBoss++;
         }
         
-        // Broadcast kill
+        // Broadcast kill with contribution details
         io.to(this.roomCode).emit('fishKilled', {
             fishId: fish.fishId,
             typeName: fish.typeName,
-            killedByPlayerId: killer.playerId,
-            killedBySocketId: fish.lastHitBy,
-            reward,
+            topContributorId: topContributor ? topContributor.playerId : null,
+            totalReward: baseReward,
+            rewardDistribution: rewardDistribution,
             isBoss: fish.isBoss,
             position: { x: fish.x, z: fish.z }
         });
         
-        // Send balance update to killer
-        io.to(fish.lastHitBy).emit('balanceUpdate', {
-            balance: killer.balance,
-            change: reward,
-            reason: 'kill',
-            fishType: fish.typeName
-        });
-        
-        // Handle special fish abilities
-        if (fish.isSpecial && fish.specialType === 'bomb') {
-            this.handleBombExplosion(fish, killer, io);
+        // Handle special fish abilities (bomb explosion attributed to top contributor)
+        if (fish.isSpecial && fish.specialType === 'bomb' && topContributor) {
+            this.handleBombExplosion(fish, topContributor, io);
         }
         
         this.fish.delete(fish.fishId);
