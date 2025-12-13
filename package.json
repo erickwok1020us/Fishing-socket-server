@@ -1,10 +1,11 @@
 {
-  "name": "fishing-game-server",
-  "version": "1.0.0",
-  "description": "Socket.io server for Fishing multiplayer game",
-  "main": "fishingServer.js",
+  "name": "fish-shooting-3d-server",
+  "version": "2.0.0",
+  "description": "Socket.io server for 3D Fish Shooting multiplayer game (1-4 players)",
+  "main": "fish3DServer.js",
   "scripts": {
-    "start": "node fishingServer.js"
+    "start": "node fish3DServer.js",
+    "start:legacy": "node fishingServer.js"
   },
   "dependencies": {
     "@socket.io/redis-adapter": "^8.3.0",
