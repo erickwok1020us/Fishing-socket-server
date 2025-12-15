@@ -487,7 +487,10 @@ class Fish3DGameEngine {
      */
     handleShoot(socketId, targetX, targetZ, io) {
         const player = this.players.get(socketId);
-        if (!player) return null;
+        if (!player) {
+            console.log(`[FISH3D-ENGINE] handleShoot: player not found for socket ${socketId}`);
+            return null;
+        }
         
         const now = Date.now();
         const weapon = WEAPONS[player.currentWeapon];
@@ -499,6 +502,7 @@ class Fish3DGameEngine {
         
         // Check balance
         if (player.balance < weapon.cost) {
+            console.log(`[FISH3D-ENGINE] handleShoot: insufficient balance ${player.balance} < ${weapon.cost}`);
             io.to(socketId).emit('insufficientBalance', {
                 required: weapon.cost,
                 current: player.balance
@@ -516,7 +520,10 @@ class Fish3DGameEngine {
         const dz = targetZ - player.cannonZ;
         const distance = Math.sqrt(dx * dx + dz * dz);
         
-        if (distance < 0.1) return null;
+        if (distance < 0.1) {
+            console.log(`[FISH3D-ENGINE] handleShoot: target too close, distance=${distance}`);
+            return null;
+        }
         
         const normalizedDx = dx / distance;
         const normalizedDz = dz / distance;
@@ -546,6 +553,9 @@ class Fish3DGameEngine {
         };
         
         this.bullets.set(bulletId, bullet);
+        
+        // Debug logging for shoot
+        console.log(`[FISH3D-ENGINE] SHOOT: room=${this.roomCode} bulletId=${bulletId} from=(${player.cannonX.toFixed(1)},${player.cannonZ.toFixed(1)}) target=(${targetX.toFixed(1)},${targetZ.toFixed(1)}) vel=(${bullet.velocityX.toFixed(1)},${bullet.velocityZ.toFixed(1)}) fishCount=${this.fish.size}`);
         
         // Broadcast bullet spawn
         io.to(this.roomCode).emit('bulletSpawned', {
@@ -759,6 +769,9 @@ class Fish3DGameEngine {
                     fish.health -= damage;
                     fish.lastHitBy = bullet.ownerSocketId;
                     
+                    // Debug logging for collision
+                    console.log(`[FISH3D-ENGINE] HIT: bulletId=${bulletId} hit fishId=${fishId} (${fish.typeName}) damage=${damage} health=${fish.health}/${fish.maxHealth}`);
+                    
                     // Track damage per player
                     const currentDamage = fish.damageByPlayer.get(bullet.ownerSocketId) || 0;
                     fish.damageByPlayer.set(bullet.ownerSocketId, currentDamage + damage);
@@ -781,6 +794,7 @@ class Fish3DGameEngine {
                     
                     // Check if fish is killed
                     if (fish.health <= 0) {
+                        console.log(`[FISH3D-ENGINE] KILL: fishId=${fishId} (${fish.typeName}) killed by bulletId=${bulletId}`);
                         this.handleFishKill(fish, bullet, io);
                     }
                     
