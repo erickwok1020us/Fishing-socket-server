@@ -484,8 +484,10 @@ class Fish3DGameEngine {
     
     /**
      * Handle player shooting
+     * Client sends normalized 2D direction vector (dirX, dirZ) instead of target coordinates
+     * This ensures bullet direction matches player's aim regardless of cannon position differences
      */
-    handleShoot(socketId, targetX, targetZ, io) {
+    handleShoot(socketId, dirX, dirZ, io) {
         const player = this.players.get(socketId);
         if (!player) return null;
         
@@ -511,18 +513,16 @@ class Fish3DGameEngine {
         player.lastShotTime = now;
         player.totalShots++;
         
-        // Calculate bullet direction
-        const dx = targetX - player.cannonX;
-        const dz = targetZ - player.cannonZ;
-        const distance = Math.sqrt(dx * dx + dz * dz);
+        // Client sends normalized direction vector directly
+        // Validate and re-normalize to ensure unit vector
+        const dirLength = Math.sqrt(dirX * dirX + dirZ * dirZ);
+        if (dirLength < 0.001) return null; // Invalid direction
         
-        if (distance < 0.1) return null;
+        const normalizedDx = dirX / dirLength;
+        const normalizedDz = dirZ / dirLength;
         
-        const normalizedDx = dx / distance;
-        const normalizedDz = dz / distance;
-        
-        // Update cannon rotation
-        player.cannonYaw = Math.atan2(dx, -dz);
+        // Update cannon rotation based on direction
+        player.cannonYaw = Math.atan2(normalizedDx, -normalizedDz);
         
         const bulletId = this.nextBulletId++;
         const bullet = {
@@ -546,6 +546,9 @@ class Fish3DGameEngine {
         };
         
         this.bullets.set(bulletId, bullet);
+        
+        // Debug logging for collision detection
+        console.log(`[FISH3D-ENGINE] SHOOT: room=${this.roomCode} bulletId=${bulletId} from=(${player.cannonX.toFixed(1)},${player.cannonZ.toFixed(1)}) dir=(${normalizedDx.toFixed(3)},${normalizedDz.toFixed(3)}) vel=(${bullet.velocityX.toFixed(1)},${bullet.velocityZ.toFixed(1)}) fishCount=${this.fish.size}`);
         
         // Broadcast bullet spawn
         io.to(this.roomCode).emit('bulletSpawned', {
@@ -743,12 +746,24 @@ class Fish3DGameEngine {
                 
                 // Line-circle intersection test
                 const fishRadius = (fish.size / 10) * this.FISH_BASE_RADIUS;
+                const combinedRadius = fishRadius + this.BULLET_RADIUS;
+                
+                // Calculate distance from bullet to fish for debug logging
+                const distToFish = Math.sqrt(
+                    Math.pow(bullet.x - fish.x, 2) + Math.pow(bullet.z - fish.z, 2)
+                );
+                
                 const hit = this.lineCircleIntersection(
                     bullet.prevX, bullet.prevZ,
                     bullet.x, bullet.z,
                     fish.x, fish.z,
-                    fishRadius + this.BULLET_RADIUS
+                    combinedRadius
                 );
+                
+                // Log near-misses and hits for debugging
+                if (distToFish < combinedRadius * 3) {
+                    console.log(`[FISH3D-ENGINE] COLLISION CHECK: bullet=${bulletId} pos=(${bullet.x.toFixed(1)},${bullet.z.toFixed(1)}) fish=${fishId} pos=(${fish.x.toFixed(1)},${fish.z.toFixed(1)}) dist=${distToFish.toFixed(1)} radius=${combinedRadius.toFixed(1)} hit=${hit}`);
+                }
                 
                 if (hit) {
                     bullet.hasHit = true;
