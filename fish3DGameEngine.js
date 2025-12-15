@@ -484,10 +484,10 @@ class Fish3DGameEngine {
     
     /**
      * Handle player shooting
-     * Client sends normalized 2D direction vector (dirX, dirZ) instead of target coordinates
-     * This ensures bullet direction matches player's aim regardless of cannon position differences
+     * Client sends target coordinates (targetX, targetZ) in server 2D space
+     * Server calculates bullet direction from cannon position to target
      */
-    handleShoot(socketId, dirX, dirZ, io) {
+    handleShoot(socketId, targetX, targetZ, io) {
         const player = this.players.get(socketId);
         if (!player) return null;
         
@@ -513,13 +513,15 @@ class Fish3DGameEngine {
         player.lastShotTime = now;
         player.totalShots++;
         
-        // Client sends normalized direction vector directly
-        // Validate and re-normalize to ensure unit vector
-        const dirLength = Math.sqrt(dirX * dirX + dirZ * dirZ);
-        if (dirLength < 0.001) return null; // Invalid direction
+        // Calculate bullet direction from cannon position to target
+        const dx = targetX - player.cannonX;
+        const dz = targetZ - player.cannonZ;
+        const distance = Math.sqrt(dx * dx + dz * dz);
         
-        const normalizedDx = dirX / dirLength;
-        const normalizedDz = dirZ / dirLength;
+        if (distance < 0.1) return null; // Target too close to cannon
+        
+        const normalizedDx = dx / distance;
+        const normalizedDz = dz / distance;
         
         // Update cannon rotation based on direction
         player.cannonYaw = Math.atan2(normalizedDx, -normalizedDz);
@@ -548,7 +550,7 @@ class Fish3DGameEngine {
         this.bullets.set(bulletId, bullet);
         
         // Debug logging for collision detection
-        console.log(`[FISH3D-ENGINE] SHOOT: room=${this.roomCode} bulletId=${bulletId} from=(${player.cannonX.toFixed(1)},${player.cannonZ.toFixed(1)}) dir=(${normalizedDx.toFixed(3)},${normalizedDz.toFixed(3)}) vel=(${bullet.velocityX.toFixed(1)},${bullet.velocityZ.toFixed(1)}) fishCount=${this.fish.size}`);
+        console.log(`[FISH3D-ENGINE] SHOOT: room=${this.roomCode} bulletId=${bulletId} from=(${player.cannonX.toFixed(1)},${player.cannonZ.toFixed(1)}) target=(${targetX.toFixed(1)},${targetZ.toFixed(1)}) dir=(${normalizedDx.toFixed(3)},${normalizedDz.toFixed(3)}) vel=(${bullet.velocityX.toFixed(1)},${bullet.velocityZ.toFixed(1)}) fishCount=${this.fish.size}`);
         
         // Broadcast bullet spawn
         io.to(this.roomCode).emit('bulletSpawned', {
