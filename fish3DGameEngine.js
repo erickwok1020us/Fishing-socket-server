@@ -1045,8 +1045,14 @@ class Fish3DGameEngine {
                 z: bullet.z,
                 vx: bullet.velocityX,
                 vz: bullet.velocityZ,
-                rot: bullet.rotation
+                rot: bullet.rotation,
+                weapon: bullet.weapon  // Add weapon for visual sync
             });
+        }
+        
+        // Debug: Log bullet count periodically
+        if (bulletsArray.length > 0 && this.serverTick % 20 === 0) {
+            console.log(`[FISH3D-ENGINE] Broadcasting ${bulletsArray.length} bullets to room ${this.roomCode}`);
         }
         
         const playersArray = [];
