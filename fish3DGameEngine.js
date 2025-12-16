@@ -643,6 +643,15 @@ class Fish3DGameEngine {
                 const fixedDt = 1 / this.TICK_RATE;
                 this.serverTick++;
                 
+                // DEBUG: Log fish count every 60 ticks (1 second at 60 tick rate)
+                if (this.serverTick % 60 === 0) {
+                    const fishTypes = {};
+                    for (const [id, fish] of this.fish) {
+                        fishTypes[fish.typeName] = (fishTypes[fish.typeName] || 0) + 1;
+                    }
+                    console.log(`[FISH3D-ENGINE] Room ${this.roomCode} tick=${this.serverTick}: fish.size=${this.fish.size}, bullets=${this.bullets.size}, types=${JSON.stringify(fishTypes)}`);
+                }
+                
                 // Update fish positions
                 this.updateFish(fixedDt, io);
                 
@@ -773,8 +782,15 @@ class Fish3DGameEngine {
                     
                     // Apply damage
                     const damage = bullet.damage;
+                    const healthBefore = fish.health;
                     fish.health -= damage;
                     fish.lastHitBy = bullet.ownerSocketId;
+                    
+                    // DEBUG: Log hit and damage application
+                    console.log(`[FISH3D-ENGINE] HIT! bulletId=${bulletId} fishId=${fishId} weapon=${bullet.weapon} damage=${damage} health: ${healthBefore} -> ${fish.health} (maxHp=${fish.maxHealth})`);
+                    if (fish.health <= 0) {
+                        console.log(`[FISH3D-ENGINE] FISH KILLED! fishId=${fishId} type=${fish.typeName}`);
+                    }
                     
                     // Track damage per player
                     const currentDamage = fish.damageByPlayer.get(bullet.ownerSocketId) || 0;
