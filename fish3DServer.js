@@ -34,11 +34,23 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
+    // Get FISH_SPEED_SCALE from any active game engine, or create a temp one to check
+    let fishSpeedScale = null;
+    const activeEngines = Object.values(gameEngines);
+    if (activeEngines.length > 0) {
+        fishSpeedScale = activeEngines[0].FISH_SPEED_SCALE;
+    } else {
+        // Create a temporary engine to check the scale value
+        const tempEngine = new Fish3DGameEngine('temp');
+        fishSpeedScale = tempEngine.FISH_SPEED_SCALE;
+    }
+    
     res.json({ 
         status: 'ok', 
         timestamp: new Date().toISOString(),
         rooms: Object.keys(rooms).length,
-        version: '2.0.0-3d'
+        version: '2.0.1-fish-speed-fix',
+        fishSpeedScale: fishSpeedScale
     });
 });
 
