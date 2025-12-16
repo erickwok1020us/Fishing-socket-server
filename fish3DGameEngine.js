@@ -229,6 +229,11 @@ class Fish3DGameEngine {
         this.fishSpawnInterval = 1500;
         this.lastFishSpawn = 0;
         
+        // Fish speed scaling - reduces fish speed to keep them on screen longer
+        // Original speeds caused fish to cross the map in 2-5 seconds
+        // With 0.15 scale, fish stay on screen ~20-30 seconds
+        this.FISH_SPEED_SCALE = 0.15;
+        
         // Bullet management
         this.bullets = new Map(); // bulletId -> bullet data
         this.nextBulletId = 1;
@@ -406,7 +411,9 @@ class Fish3DGameEngine {
         const dx = endX - startX;
         const dz = endZ - startZ;
         const distance = Math.sqrt(dx * dx + dz * dz);
-        const speed = fishType.speed * (0.8 + this.rng.next() * 0.4); // ±20% speed variation
+        // Apply speed scale to keep fish on screen longer (original speeds were too fast)
+        const baseSpeed = fishType.speed * this.FISH_SPEED_SCALE;
+        const speed = baseSpeed * (0.8 + this.rng.next() * 0.4); // ±20% speed variation
         
         return {
             startX, startZ,
