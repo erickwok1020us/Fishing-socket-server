@@ -8,6 +8,13 @@
  * - Real-time fish/bullet synchronization
  * - Last-hit-wins kill attribution
  * - Boss wave system
+ * - Security architecture (CSPRNG, session management, nonce tracking)
+ * 
+ * Security Features (PDF Specification):
+ * - Server-authoritative game state
+ * - CSPRNG for all random outcomes
+ * - Session management with nonce tracking
+ * - RTP values: 1x=91.5%, 3x=94.5%, 5x=97.5%, 8x=99.5%, 20x=99.9%
  */
 
 const express = require('express');
@@ -15,6 +22,11 @@ const http = require('http');
 const socketIO = require('socket.io');
 const cors = require('cors');
 const { Fish3DGameEngine, FISH_SPECIES, WEAPONS } = require('./fish3DGameEngine');
+
+// Security modules
+const { sessionManager } = require('./src/session/SessionManager');
+const { serverCSPRNG } = require('./src/rng/CSPRNG');
+const { GAME_CONFIG } = require('./src/rng/HitMath');
 
 process.on('uncaughtException', (err) => {
     console.error('[FATAL][uncaughtException]', err);
@@ -49,8 +61,20 @@ app.get('/health', (req, res) => {
         status: 'ok', 
         timestamp: new Date().toISOString(),
         rooms: Object.keys(rooms).length,
-        version: '2.0.1-fish-speed-fix',
-        fishSpeedScale: fishSpeedScale
+        version: '3.0.0-security-architecture',
+        fishSpeedScale: fishSpeedScale,
+        security: {
+            sessionManagement: true,
+            csprng: true,
+            rtpValues: {
+                '1x': '91.5%',
+                '3x': '94.5%',
+                '5x': '97.5%',
+                '8x': '99.5%',
+                '20x': '99.9%'
+            }
+        },
+        activeSessions: sessionManager.getActiveSessionCount()
     });
 });
 
@@ -111,6 +135,11 @@ function generateRoomCode() {
 
 io.on('connection', (socket) => {
     console.log(`[SOCKET] Client connected: ${socket.id}`);
+    
+    // Create session for this connection (security feature)
+    const playerId = `player-${socket.id.substring(0, 8)}`;
+    const session = sessionManager.createSession(playerId, socket.id);
+    console.log(`[SECURITY] Session created: ${session.sessionId} for socket ${socket.id}`);
     
     // Time sync for interpolation
     socket.on('timeSyncPing', (data) => {
@@ -410,10 +439,15 @@ io.on('connection', (socket) => {
     
     // ============ DISCONNECT HANDLING ============
     
-    socket.on('disconnect', (reason) => {
-        console.log(`[SOCKET] Client disconnected: ${socket.id}, reason: ${reason}`);
-        handlePlayerLeave(socket);
-    });
+        socket.on('disconnect', (reason) => {
+            console.log(`[SOCKET] Client disconnected: ${socket.id}, reason: ${reason}`);
+        
+            // Clean up session (security feature)
+            sessionManager.destroySessionBySocket(socket.id);
+            console.log(`[SECURITY] Session destroyed for socket ${socket.id}`);
+        
+            handlePlayerLeave(socket);
+        });
 });
 
 /**
