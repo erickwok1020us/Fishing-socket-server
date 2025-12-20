@@ -17,13 +17,13 @@ const { secureRandom } = require('./CSPRNG');
  * These values match the PDF specification
  */
 const GAME_CONFIG = {
-    // Weapon RTP values from PDF specification
+    // Weapon RTP values from updated specification
+    // Note: 20x weapon removed per latest specification
     WEAPONS: [
-        { id: 1, key: '1x', multiplier: 1, cost: 1, rtp: 0.915, damage: 1 },
-        { id: 2, key: '3x', multiplier: 3, cost: 3, rtp: 0.945, damage: 3 },
-        { id: 3, key: '5x', multiplier: 5, cost: 5, rtp: 0.975, damage: 5 },
-        { id: 4, key: '8x', multiplier: 8, cost: 8, rtp: 0.995, damage: 8 },
-        { id: 5, key: '20x', multiplier: 20, cost: 200, rtp: 0.999, damage: 20, features: ['penetrating'] }
+        { id: 1, key: '1x', multiplier: 1, cost: 1, rtp: 0.91, damage: 1 },
+        { id: 2, key: '3x', multiplier: 3, cost: 3, rtp: 0.93, damage: 3 },
+        { id: 3, key: '5x', multiplier: 5, cost: 5, rtp: 0.94, damage: 5 },
+        { id: 4, key: '8x', multiplier: 8, cost: 8, rtp: 0.95, damage: 8 }
     ],
     
     // Fish types from PDF specification

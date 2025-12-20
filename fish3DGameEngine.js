@@ -208,15 +208,15 @@ const FISH_SPECIES = {
 const TOTAL_SPAWN_WEIGHT = Object.values(FISH_SPECIES).reduce((sum, fish) => sum + fish.spawnWeight, 0);
 
 /**
- * Weapon Configuration - Matches PDF Specification
- * RTP values: 1x=91.5%, 3x=94.5%, 5x=97.5%, 8x=99.5%, 20x=99.9%
+ * Weapon Configuration - Updated Specification
+ * RTP values: 1x=91%, 3x=93%, 5x=94%, 8x=95%
+ * Note: 20x weapon removed per latest specification
  */
 const WEAPONS = {
-    '1x': { multiplier: 1, cost: 1, cooldown: 200, damage: 1, rtp: 0.915 },
-    '3x': { multiplier: 3, cost: 3, cooldown: 300, damage: 3, rtp: 0.945 },
-    '5x': { multiplier: 5, cost: 5, cooldown: 400, damage: 5, rtp: 0.975 },
-    '8x': { multiplier: 8, cost: 8, cooldown: 500, damage: 8, rtp: 0.995 },
-    '20x': { multiplier: 20, cost: 200, cooldown: 1000, damage: 20, rtp: 0.999, features: ['penetrating'], maxPenetrations: 5 }
+    '1x': { multiplier: 1, cost: 1, cooldown: 200, damage: 1, rtp: 0.91 },
+    '3x': { multiplier: 3, cost: 3, cooldown: 300, damage: 3, rtp: 0.93 },
+    '5x': { multiplier: 5, cost: 5, cooldown: 400, damage: 5, rtp: 0.94 },
+    '8x': { multiplier: 8, cost: 8, cooldown: 500, damage: 8, rtp: 0.95 }
 };
 
 /**
