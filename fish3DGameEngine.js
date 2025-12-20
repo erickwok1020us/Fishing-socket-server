@@ -43,152 +43,162 @@ class SeededRNG {
 }
 
 /**
- * Fish Species Configuration - Matches 3D Game (game.js CONFIG.fishTiers)
+ * Fish Species Configuration - Matches PDF Specification (6-Tier System)
  * Server uses 2D coordinates (x, z), client adds Y for visual depth
+ * 
+ * PDF Specification HP Ranges:
+ * - Tier 1 (Small): HP 20-30, Reward 2-3x, Spawn 40%
+ * - Tier 2 (Common): HP 50-80, Reward 5-8x, Spawn 30%
+ * - Tier 3 (Medium): HP 100-150, Reward 10-15x, Spawn 15%
+ * - Tier 4 (Large): HP 200-300, Reward 20-30x, Spawn 10%
+ * - Tier 5 (Rare): HP 400-600, Reward 40-60x, Spawn 4%
+ * - Tier 6 (Boss): HP 1000-2000, Reward 100-200x, Spawn 1%
  */
 const FISH_SPECIES = {
-    // ==================== LARGE PREDATORS (Boss-tier) ====================
+    // ==================== TIER 6: BOSS (1% spawn rate, HP 1000-2000) ====================
     blueWhale: {
-        id: 1, name: 'Blue Whale', category: 'boss', tier: 'legendary',
-        health: 100, multiplier: 500, speed: 25, size: 140,
-        spawnWeight: 0.05, isBoss: true, isLegendary: true,
+        id: 1, name: 'Blue Whale', category: 'boss', tier: 6,
+        health: 2000, hpRange: [1000, 2000], multiplier: 200, rewardRange: [100, 200],
+        speed: 25, size: 140, spawnWeight: 0.7, isBoss: true, isLegendary: true,
         color: 0x4477aa, movementPattern: 'cruise'
     },
     greatWhiteShark: {
-        id: 2, name: 'Great White Shark', category: 'boss', tier: 'boss',
-        health: 80, multiplier: 400, speed: 60, size: 100,
-        spawnWeight: 0.1, isBoss: true,
+        id: 2, name: 'Great White Shark', category: 'boss', tier: 6,
+        health: 1500, hpRange: [1000, 2000], multiplier: 150, rewardRange: [100, 200],
+        speed: 60, size: 100, spawnWeight: 0.3, isBoss: true,
         color: 0x667788, movementPattern: 'burstAttack'
     },
+    
+    // ==================== TIER 5: RARE (4% spawn rate, HP 400-600) ====================
     marlin: {
-        id: 3, name: 'Marlin', category: 'large', tier: 'large',
-        health: 50, multiplier: 300, speed: 100, size: 80,
-        spawnWeight: 0.3,
+        id: 3, name: 'Marlin', category: 'rare', tier: 5,
+        health: 500, hpRange: [400, 600], multiplier: 50, rewardRange: [40, 60],
+        speed: 100, size: 80, spawnWeight: 1.5,
         color: 0x2266aa, movementPattern: 'burstSprint'
     },
     hammerheadShark: {
-        id: 4, name: 'Hammerhead Shark', category: 'large', tier: 'large',
-        health: 55, multiplier: 300, speed: 50, size: 85,
-        spawnWeight: 0.3,
+        id: 4, name: 'Hammerhead Shark', category: 'rare', tier: 5,
+        health: 550, hpRange: [400, 600], multiplier: 55, rewardRange: [40, 60],
+        speed: 50, size: 85, spawnWeight: 1.5,
         color: 0x556677, movementPattern: 'sShape'
     },
+    goldenDragon: {
+        id: 23, name: 'Golden Dragon Fish', category: 'rare', tier: 5,
+        health: 600, hpRange: [400, 600], multiplier: 60, rewardRange: [40, 60],
+        speed: 70, size: 75, spawnWeight: 1, isSpecial: true, specialType: 'golden',
+        color: 0xffd700, movementPattern: 'elegantGlide'
+    },
     
-    // ==================== MEDIUM-LARGE FISH ====================
+    // ==================== TIER 4: LARGE (10% spawn rate, HP 200-300) ====================
     yellowfinTuna: {
-        id: 5, name: 'Yellowfin Tuna', category: 'medium', tier: 'medium',
-        health: 25, multiplier: 250, speed: 80, size: 50,
-        spawnWeight: 1,
+        id: 5, name: 'Yellowfin Tuna', category: 'large', tier: 4,
+        health: 250, hpRange: [200, 300], multiplier: 25, rewardRange: [20, 30],
+        speed: 80, size: 50, spawnWeight: 4,
         color: 0x3355aa, movementPattern: 'synchronizedFast'
     },
     mahiMahi: {
-        id: 6, name: 'Mahi-Mahi', category: 'medium', tier: 'medium',
-        health: 20, multiplier: 200, speed: 70, size: 45,
-        spawnWeight: 1.2,
+        id: 6, name: 'Mahi-Mahi', category: 'large', tier: 4,
+        health: 200, hpRange: [200, 300], multiplier: 20, rewardRange: [20, 30],
+        speed: 70, size: 45, spawnWeight: 3,
         color: 0x44aa44, movementPattern: 'irregularTurns'
     },
+    mantaRay: {
+        id: 17, name: 'Manta Ray', category: 'large', tier: 4,
+        health: 300, hpRange: [200, 300], multiplier: 30, rewardRange: [20, 30],
+        speed: 45, size: 90, spawnWeight: 3,
+        color: 0x222233, movementPattern: 'wingGlide'
+    },
+    
+    // ==================== TIER 3: MEDIUM (15% spawn rate, HP 100-150) ====================
     barracuda: {
-        id: 7, name: 'Barracuda', category: 'medium', tier: 'medium',
-        health: 22, multiplier: 200, speed: 90, size: 55,
-        spawnWeight: 1,
+        id: 7, name: 'Barracuda', category: 'medium', tier: 3,
+        health: 120, hpRange: [100, 150], multiplier: 12, rewardRange: [10, 15],
+        speed: 90, size: 55, spawnWeight: 5,
         color: 0xaabbcc, movementPattern: 'ambush'
     },
     grouper: {
-        id: 8, name: 'Grouper', category: 'medium', tier: 'medium',
-        health: 30, multiplier: 180, speed: 30, size: 60,
-        spawnWeight: 0.8,
+        id: 8, name: 'Grouper', category: 'medium', tier: 3,
+        health: 150, hpRange: [100, 150], multiplier: 15, rewardRange: [10, 15],
+        speed: 30, size: 60, spawnWeight: 5,
         color: 0x886644, movementPattern: 'bottomBurst'
     },
-    
-    // ==================== REEF FISH ====================
     parrotfish: {
-        id: 9, name: 'Parrotfish', category: 'small', tier: 'normal',
-        health: 12, multiplier: 150, speed: 45, size: 35,
-        spawnWeight: 2,
+        id: 9, name: 'Parrotfish', category: 'medium', tier: 3,
+        health: 100, hpRange: [100, 150], multiplier: 10, rewardRange: [10, 15],
+        speed: 45, size: 35, spawnWeight: 5,
         color: 0x44ddaa, movementPattern: 'stopAndGo'
     },
+    
+    // ==================== TIER 2: COMMON (30% spawn rate, HP 50-80) ====================
     angelfish: {
-        id: 10, name: 'Angelfish', category: 'small', tier: 'normal',
-        health: 10, multiplier: 120, speed: 40, size: 30,
-        spawnWeight: 2.5,
+        id: 10, name: 'Angelfish', category: 'common', tier: 2,
+        health: 60, hpRange: [50, 80], multiplier: 6, rewardRange: [5, 8],
+        speed: 40, size: 30, spawnWeight: 10,
         color: 0xffdd44, movementPattern: 'elegantGlide'
     },
     butterflyfish: {
-        id: 11, name: 'Butterflyfish', category: 'small', tier: 'normal',
-        health: 8, multiplier: 100, speed: 50, size: 22,
-        spawnWeight: 3,
+        id: 11, name: 'Butterflyfish', category: 'common', tier: 2,
+        health: 50, hpRange: [50, 80], multiplier: 5, rewardRange: [5, 8],
+        speed: 50, size: 22, spawnWeight: 10,
         color: 0xffffaa, movementPattern: 'agileWeave'
     },
     blueTang: {
-        id: 12, name: 'Blue Tang', category: 'small', tier: 'normal',
-        health: 6, multiplier: 100, speed: 55, size: 20,
-        spawnWeight: 3.5,
+        id: 12, name: 'Blue Tang', category: 'common', tier: 2,
+        health: 70, hpRange: [50, 80], multiplier: 7, rewardRange: [5, 8],
+        speed: 55, size: 20, spawnWeight: 10,
         color: 0x2288ff, movementPattern: 'groupCoordination'
     },
     
-    // ==================== SMALL SCHOOLING FISH ====================
+    // ==================== TIER 1: SMALL (40% spawn rate, HP 20-30) ====================
     sardine: {
-        id: 13, name: 'Sardine', category: 'tiny', tier: 'normal',
-        health: 2, multiplier: 50, speed: 90, size: 10,
-        spawnWeight: 8,
+        id: 13, name: 'Sardine', category: 'small', tier: 1,
+        health: 20, hpRange: [20, 30], multiplier: 2, rewardRange: [2, 3],
+        speed: 90, size: 10, spawnWeight: 15,
         color: 0xccddee, movementPattern: 'waveFormation'
     },
     anchovy: {
-        id: 14, name: 'Anchovy', category: 'tiny', tier: 'normal',
-        health: 1, multiplier: 40, speed: 100, size: 8,
-        spawnWeight: 10,
+        id: 14, name: 'Anchovy', category: 'small', tier: 1,
+        health: 20, hpRange: [20, 30], multiplier: 2, rewardRange: [2, 3],
+        speed: 100, size: 8, spawnWeight: 15,
         color: 0xaabbcc, movementPattern: 'baitBall'
     },
     clownfish: {
-        id: 15, name: 'Clownfish', category: 'small', tier: 'normal',
-        health: 5, multiplier: 80, speed: 35, size: 15,
-        spawnWeight: 4,
+        id: 15, name: 'Clownfish', category: 'small', tier: 1,
+        health: 25, hpRange: [20, 30], multiplier: 2, rewardRange: [2, 3],
+        speed: 35, size: 15, spawnWeight: 10,
         color: 0xff6600, movementPattern: 'territorial'
     },
     damselfish: {
-        id: 16, name: 'Damselfish', category: 'tiny', tier: 'normal',
-        health: 4, multiplier: 60, speed: 60, size: 12,
-        spawnWeight: 5,
+        id: 16, name: 'Damselfish', category: 'small', tier: 1,
+        health: 30, hpRange: [20, 30], multiplier: 3, rewardRange: [2, 3],
+        speed: 60, size: 12, spawnWeight: 10,
         color: 0x6644ff, movementPattern: 'defensiveCharge'
     },
-    
-    // ==================== SPECIAL FORM FISH ====================
-    mantaRay: {
-        id: 17, name: 'Manta Ray', category: 'large', tier: 'large',
-        health: 45, multiplier: 280, speed: 45, size: 90,
-        spawnWeight: 0.4,
-        color: 0x222233, movementPattern: 'wingGlide'
-    },
     pufferfish: {
-        id: 18, name: 'Pufferfish', category: 'small', tier: 'normal',
-        health: 15, multiplier: 120, speed: 25, size: 25,
-        spawnWeight: 2,
+        id: 18, name: 'Pufferfish', category: 'small', tier: 1,
+        health: 30, hpRange: [20, 30], multiplier: 3, rewardRange: [2, 3],
+        speed: 25, size: 25, spawnWeight: 5,
         color: 0xddcc88, movementPattern: 'slowRotation'
     },
     seahorse: {
-        id: 19, name: 'Seahorse', category: 'small', tier: 'normal',
-        health: 10, multiplier: 150, speed: 18, size: 20,
-        spawnWeight: 1.5,
+        id: 19, name: 'Seahorse', category: 'small', tier: 1,
+        health: 25, hpRange: [20, 30], multiplier: 2, rewardRange: [2, 3],
+        speed: 18, size: 20, spawnWeight: 5,
         color: 0xffaa44, movementPattern: 'verticalDrift'
-    },
-    flyingFish: {
-        id: 20, name: 'Flying Fish', category: 'small', tier: 'normal',
-        health: 8, multiplier: 100, speed: 120, size: 18,
-        spawnWeight: 2,
-        color: 0x4488cc, movementPattern: 'glideJump'
     },
     
     // ==================== SPECIAL ABILITY FISH ====================
     bombCrab: {
-        id: 21, name: 'Bomb Crab', category: 'special', tier: 'special',
-        health: 18, multiplier: 200, speed: 30, size: 35,
-        spawnWeight: 0.5, isSpecial: true, specialType: 'bomb',
+        id: 21, name: 'Bomb Crab', category: 'special', tier: 3,
+        health: 100, hpRange: [80, 120], multiplier: 0, rewardRange: [0, 0],
+        speed: 30, size: 35, spawnWeight: 2, isSpecial: true, specialType: 'bomb',
         color: 0xff4400, movementPattern: 'slowRotation',
-        abilityRadius: 200, abilityDamage: 50
+        explosionRadius: 15, explosionDamage: 50
     },
     electricEel: {
-        id: 22, name: 'Electric Eel', category: 'special', tier: 'special',
-        health: 22, multiplier: 250, speed: 50, size: 50,
-        spawnWeight: 0.4, isSpecial: true, specialType: 'chain',
+        id: 22, name: 'Electric Eel', category: 'special', tier: 3,
+        health: 120, hpRange: [100, 150], multiplier: 12, rewardRange: [10, 15],
+        speed: 50, size: 50, spawnWeight: 1.5, isSpecial: true, specialType: 'chain',
         color: 0x00ffff, movementPattern: 'snakeWave',
         chainTargets: 3, chainDamage: 30
     }
@@ -198,14 +208,15 @@ const FISH_SPECIES = {
 const TOTAL_SPAWN_WEIGHT = Object.values(FISH_SPECIES).reduce((sum, fish) => sum + fish.spawnWeight, 0);
 
 /**
- * Weapon Configuration - Matches 3D Game
+ * Weapon Configuration - Matches PDF Specification
+ * RTP values: 1x=91.5%, 3x=94.5%, 5x=97.5%, 8x=99.5%, 20x=99.9%
  */
 const WEAPONS = {
-    '1x': { multiplier: 1, cost: 1, cooldown: 200, damage: 1 },
-    '3x': { multiplier: 3, cost: 3, cooldown: 300, damage: 3 },
-    '5x': { multiplier: 5, cost: 5, cooldown: 400, damage: 5 },
-    '8x': { multiplier: 8, cost: 8, cooldown: 500, damage: 8 },
-    '20x': { multiplier: 20, cost: 200, cooldown: 1000, damage: 20 }
+    '1x': { multiplier: 1, cost: 1, cooldown: 200, damage: 1, rtp: 0.915 },
+    '3x': { multiplier: 3, cost: 3, cooldown: 300, damage: 3, rtp: 0.945 },
+    '5x': { multiplier: 5, cost: 5, cooldown: 400, damage: 5, rtp: 0.975 },
+    '8x': { multiplier: 8, cost: 8, cooldown: 500, damage: 8, rtp: 0.995 },
+    '20x': { multiplier: 20, cost: 200, cooldown: 1000, damage: 20, rtp: 0.999, features: ['penetrating'], maxPenetrations: 5 }
 };
 
 /**
