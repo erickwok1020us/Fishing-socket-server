@@ -1,18 +1,28 @@
 {
   "name": "fish-shooting-3d-server",
-  "version": "2.0.0",
+  "version": "3.5.0",
   "description": "Socket.io server for 3D Fish Shooting multiplayer game (1-4 players)",
   "main": "fish3DServer.js",
-  "scripts": {
-    "start": "node fish3DServer.js",
-    "start:legacy": "node fishingServer.js"
-  },
+    "scripts": {
+      "start": "node fish3DServer.js",
+      "start:legacy": "node fishingServer.js",
+      "test": "jest",
+      "test:watch": "jest --watch",
+      "test:coverage": "jest --coverage",
+      "test:load": "artillery run artillery.yml",
+      "test:load:production": "artillery run -e production artillery.yml"
+    },
   "dependencies": {
     "@socket.io/redis-adapter": "^8.3.0",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "redis": "^5.9.0",
     "socket.io": "^4.7.2",
-    "socket.io-client": "^4.8.1"
+    "socket.io-client": "^4.8.1",
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "artillery": "^2.0.0"
   }
 }

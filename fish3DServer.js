@@ -27,6 +27,7 @@ const { Fish3DGameEngine, FISH_SPECIES, WEAPONS } = require('./fish3DGameEngine'
 const { sessionManager } = require('./src/session/SessionManager');
 const { serverCSPRNG } = require('./src/rng/CSPRNG');
 const { GAME_CONFIG } = require('./src/rng/HitMath');
+const { rateLimiter } = require('./src/security/RateLimiter');
 
 process.on('uncaughtException', (err) => {
     console.error('[FATAL][uncaughtException]', err);
@@ -61,13 +62,14 @@ app.get('/health', (req, res) => {
         status: 'ok', 
         timestamp: new Date().toISOString(),
         rooms: Object.keys(rooms).length,
-        version: '3.4.0-remove-20x',
+        version: '3.5.0-rate-limiting',
         fishSpeedScale: fishSpeedScale,
         security: {
             sessionManagement: true,
             csprng: true,
             aesGcmEncryption: true,
             hmacVerification: true,
+            rateLimiting: true,
             rtpValues: {
                 '1x': '91.5%',
                 '3x': '94.5%',
@@ -75,7 +77,8 @@ app.get('/health', (req, res) => {
                 '8x': '99.5%'
             }
         },
-        activeSessions: sessionManager.getActiveSessionCount()
+        activeSessions: sessionManager.getActiveSessionCount(),
+        rateLimiter: rateLimiter.getStats()
     });
 });
 
@@ -135,7 +138,24 @@ function generateRoomCode() {
 }
 
 io.on('connection', (socket) => {
-    console.log(`[SOCKET] Client connected: ${socket.id}`);
+    // Get client IP for rate limiting
+    const clientIP = socket.handshake.headers['x-forwarded-for'] || 
+                     socket.handshake.address || 
+                     'unknown';
+    
+    // Check handshake rate limit
+    const handshakeCheck = rateLimiter.checkHandshake(clientIP);
+    if (!handshakeCheck.allowed) {
+        console.warn(`[RATE-LIMIT] Connection rejected for IP ${clientIP}: ${handshakeCheck.reason}`);
+        socket.emit('error', { message: 'Too many connections. Please try again later.' });
+        socket.disconnect(true);
+        return;
+    }
+    
+    console.log(`[SOCKET] Client connected: ${socket.id} from IP: ${clientIP}`);
+    
+    // Register connection with rate limiter
+    rateLimiter.registerConnection(socket.id, clientIP);
     
     // Create session for this connection (security feature)
     const playerId = `player-${socket.id.substring(0, 8)}`;
@@ -144,6 +164,10 @@ io.on('connection', (socket) => {
     
     // Time sync for interpolation
     socket.on('timeSyncPing', (data) => {
+        // Rate limit time sync
+        const timeSyncCheck = rateLimiter.checkTimeSync(socket.id);
+        if (!timeSyncCheck.allowed) return;
+        
         const { seq, clientSendTime } = data;
         socket.emit('timeSyncPong', {
             seq,
@@ -156,6 +180,13 @@ io.on('connection', (socket) => {
     
     // Create a new room
     socket.on('createRoom', (data) => {
+        // Rate limit room operations
+        const roomCheck = rateLimiter.checkRoomAction(socket.id, clientIP);
+        if (!roomCheck.allowed) {
+            socket.emit('error', { message: 'Rate limit exceeded. Please wait before creating a room.' });
+            return;
+        }
+        
         const { playerName, isPublic = true } = data;
         
         let roomCode = generateRoomCode();
@@ -203,6 +234,13 @@ io.on('connection', (socket) => {
     
     // Join an existing room
     socket.on('joinRoom', (data) => {
+        // Rate limit room operations
+        const roomCheck = rateLimiter.checkRoomAction(socket.id, clientIP);
+        if (!roomCheck.allowed) {
+            socket.emit('joinError', { message: 'Rate limit exceeded. Please wait before joining a room.' });
+            return;
+        }
+        
         const { roomCode, playerName } = data;
         
         if (!rooms[roomCode]) {
@@ -265,6 +303,10 @@ io.on('connection', (socket) => {
     
     // Player ready status
     socket.on('playerReady', (data) => {
+        // Rate limit room operations
+        const roomCheck = rateLimiter.checkRoomAction(socket.id, clientIP);
+        if (!roomCheck.allowed) return;
+        
         const { ready } = data;
         const roomCode = playerRooms[socket.id];
         
@@ -285,6 +327,13 @@ io.on('connection', (socket) => {
     
     // Start game (host only)
     socket.on('startGame', () => {
+        // Rate limit room operations
+        const roomCheck = rateLimiter.checkRoomAction(socket.id, clientIP);
+        if (!roomCheck.allowed) {
+            socket.emit('error', { message: 'Rate limit exceeded. Please wait.' });
+            return;
+        }
+        
         const roomCode = playerRooms[socket.id];
         
         if (!roomCode || !rooms[roomCode]) return;
@@ -322,6 +371,18 @@ io.on('connection', (socket) => {
     
     // Player shoots
     socket.on('shoot', (data) => {
+        // Rate limit shooting
+        const shootCheck = rateLimiter.checkShoot(socket.id, clientIP);
+        if (!shootCheck.allowed) {
+            // Check if session should be banned for too many violations
+            if (rateLimiter.shouldBanSession(socket.id)) {
+                socket.emit('error', { message: 'Session banned for excessive rate limit violations.' });
+                socket.disconnect(true);
+                return;
+            }
+            return; // Silently drop excess shots
+        }
+        
         const { targetX, targetZ } = data;
         const roomCode = playerRooms[socket.id];
         
@@ -332,6 +393,10 @@ io.on('connection', (socket) => {
     
     // Player changes weapon
     socket.on('changeWeapon', (data) => {
+        // Rate limit weapon switch
+        const weaponCheck = rateLimiter.checkWeaponSwitch(socket.id, clientIP);
+        if (!weaponCheck.allowed) return;
+        
         const { weapon } = data;
         const roomCode = playerRooms[socket.id];
         
@@ -342,6 +407,10 @@ io.on('connection', (socket) => {
     
     // Player updates cannon rotation (for visual sync)
     socket.on('updateCannon', (data) => {
+        // Rate limit movement updates
+        const movementCheck = rateLimiter.checkMovement(socket.id, clientIP);
+        if (!movementCheck.allowed) return;
+        
         const { yaw, pitch } = data;
         const roomCode = playerRooms[socket.id];
         
@@ -376,6 +445,10 @@ io.on('connection', (socket) => {
     
     // Request current state (for reconnection)
     socket.on('requestState', () => {
+        // Rate limit state requests
+        const stateCheck = rateLimiter.checkStateRequest(socket.id);
+        if (!stateCheck.allowed) return;
+        
         const roomCode = playerRooms[socket.id];
         
         if (!roomCode || !gameEngines[roomCode]) return;
@@ -398,6 +471,13 @@ io.on('connection', (socket) => {
     // ============ SINGLE PLAYER MODE ============
     
     socket.on('startSinglePlayer', (data) => {
+        // Rate limit room operations
+        const roomCheck = rateLimiter.checkRoomAction(socket.id, clientIP);
+        if (!roomCheck.allowed) {
+            socket.emit('error', { message: 'Rate limit exceeded. Please wait.' });
+            return;
+        }
+        
         const { playerName } = data || {};
         const roomCode = `single-${socket.id}-${Date.now()}`;
         
@@ -440,15 +520,18 @@ io.on('connection', (socket) => {
     
     // ============ DISCONNECT HANDLING ============
     
-        socket.on('disconnect', (reason) => {
-            console.log(`[SOCKET] Client disconnected: ${socket.id}, reason: ${reason}`);
+    socket.on('disconnect', (reason) => {
+        console.log(`[SOCKET] Client disconnected: ${socket.id}, reason: ${reason}`);
         
-            // Clean up session (security feature)
-            sessionManager.destroySessionBySocket(socket.id);
-            console.log(`[SECURITY] Session destroyed for socket ${socket.id}`);
+        // Clean up rate limiter (security feature)
+        rateLimiter.unregisterConnection(socket.id, clientIP);
         
-            handlePlayerLeave(socket);
-        });
+        // Clean up session (security feature)
+        sessionManager.destroySessionBySocket(socket.id);
+        console.log(`[SECURITY] Session destroyed for socket ${socket.id}`);
+        
+        handlePlayerLeave(socket);
+    });
 });
 
 /**
