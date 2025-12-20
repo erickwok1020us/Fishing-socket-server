@@ -14,7 +14,7 @@
  * - Server-authoritative game state
  * - CSPRNG for all random outcomes
  * - Session management with nonce tracking
- * - RTP values: 1x=91.5%, 3x=94.5%, 5x=97.5%, 8x=99.5%, 20x=99.9%
+ * - RTP values: 1x=91.5%, 3x=94.5%, 5x=97.5%, 8x=99.5%
  */
 
 const express = require('express');
@@ -61,7 +61,7 @@ app.get('/health', (req, res) => {
         status: 'ok', 
         timestamp: new Date().toISOString(),
         rooms: Object.keys(rooms).length,
-        version: '3.2.0-20x-weapon',
+        version: '3.4.0-remove-20x',
         fishSpeedScale: fishSpeedScale,
         security: {
             sessionManagement: true,
@@ -72,8 +72,7 @@ app.get('/health', (req, res) => {
                 '1x': '91.5%',
                 '3x': '94.5%',
                 '5x': '97.5%',
-                '8x': '99.5%',
-                '20x': '99.9%'
+                '8x': '99.5%'
             }
         },
         activeSessions: sessionManager.getActiveSessionCount()

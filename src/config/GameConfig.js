@@ -15,7 +15,6 @@
  * - 3x: 94.5%
  * - 5x: 97.5%
  * - 8x: 99.5%
- * - 20x: 99.9% (Penetrating Beam - can hit up to 5 fish)
  */
 const WEAPONS = {
     '1x': {
@@ -57,17 +56,6 @@ const WEAPONS = {
         damage: 8,
         rtp: 0.995,
         features: []
-    },
-    '20x': {
-        id: 5,
-        key: '20x',
-        multiplier: 20,
-        cost: 200,
-        cooldown: 1000,
-        damage: 20,
-        rtp: 0.999,
-        features: ['penetrating'],
-        maxPenetration: 5
     }
 };
 
