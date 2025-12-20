@@ -1,0 +1,181 @@
+# Artillery Load Test Configuration
+# 
+# Tests the Socket.IO server under load to verify:
+# - Connection handling under concurrent load
+# - Rate limiting effectiveness
+# - Server stability and response times
+#
+# Usage:
+#   npm run test:load              # Run against local server
+#   npm run test:load:production   # Run against production
+#
+# Or directly:
+#   npx artillery run artillery.yml
+
+config:
+  target: "http://localhost:3000"
+  phases:
+    # Warm-up phase: 2 users/sec for 30 seconds
+    - duration: 30
+      arrivalRate: 2
+      name: "Warm-up"
+    # Ramp-up phase: 2 to 10 users/sec over 60 seconds
+    - duration: 60
+      arrivalRate: 2
+      rampTo: 10
+      name: "Ramp-up"
+    # Sustained load: 10 users/sec for 60 seconds
+    - duration: 60
+      arrivalRate: 10
+      name: "Sustained load"
+    # Cool-down phase: 10 to 2 users/sec over 30 seconds
+    - duration: 30
+      arrivalRate: 10
+      rampTo: 2
+      name: "Cool-down"
+  
+  # Socket.IO specific configuration
+  socketio:
+    transports: ["websocket"]
+    path: "/socket.io"
+  
+  # Variables for test scenarios
+  variables:
+    playerNames:
+      - "LoadTestPlayer1"
+      - "LoadTestPlayer2"
+      - "LoadTestPlayer3"
+      - "LoadTestPlayer4"
+      - "LoadTestPlayer5"
+
+  # Plugins
+  plugins:
+    expect: {}
+
+scenarios:
+  # Scenario 1: Single player game session
+  - name: "Single Player Session"
+    weight: 40
+    engine: socketio
+    flow:
+      # Connect to server
+      - emit:
+          channel: "startSinglePlayer"
+          data:
+            playerName: "LoadTest_{{ $randomNumber(1000, 9999) }}"
+      
+      # Wait for game start
+      - think: 1
+      
+      # Simulate shooting (10 shots)
+      - loop:
+        - emit:
+            channel: "shoot"
+            data:
+              targetX: "{{ $randomNumber(-10, 10) }}"
+              targetY: "{{ $randomNumber(-5, 5) }}"
+              weapon: 1
+        - think: 0.2
+        count: 10
+      
+      # Simulate cannon movement
+      - loop:
+        - emit:
+            channel: "updateCannon"
+            data:
+              yaw: "{{ $randomNumber(-180, 180) }}"
+              pitch: "{{ $randomNumber(-30, 30) }}"
+        - think: 0.1
+        count: 5
+      
+      # Request state
+      - emit:
+          channel: "requestState"
+      
+      # Wait before disconnect
+      - think: 2
+
+  # Scenario 2: Multiplayer room creation and joining
+  - name: "Multiplayer Room Flow"
+    weight: 30
+    engine: socketio
+    flow:
+      # Create a room
+      - emit:
+          channel: "createRoom"
+          data:
+            playerName: "Host_{{ $randomNumber(1000, 9999) }}"
+            maxPlayers: 4
+      
+      # Wait for room creation
+      - think: 1
+      
+      # Simulate some activity
+      - loop:
+        - emit:
+            channel: "shoot"
+            data:
+              targetX: "{{ $randomNumber(-10, 10) }}"
+              targetY: "{{ $randomNumber(-5, 5) }}"
+              weapon: 1
+        - think: 0.3
+        count: 5
+      
+      # Wait before disconnect
+      - think: 2
+
+  # Scenario 3: Time sync stress test
+  - name: "Time Sync Stress"
+    weight: 15
+    engine: socketio
+    flow:
+      # Connect and start single player
+      - emit:
+          channel: "startSinglePlayer"
+          data:
+            playerName: "TimeSyncTest_{{ $randomNumber(1000, 9999) }}"
+      
+      - think: 0.5
+      
+      # Rapid time sync requests (tests rate limiting)
+      - loop:
+        - emit:
+            channel: "timeSyncPing"
+            data:
+              seq: "{{ $loopCount }}"
+              clientSendTime: "{{ $timestamp }}"
+        - think: 0.05
+        count: 20
+      
+      - think: 1
+
+  # Scenario 4: Rate limit test (intentionally exceeds limits)
+  - name: "Rate Limit Test"
+    weight: 15
+    engine: socketio
+    flow:
+      # Connect and start single player
+      - emit:
+          channel: "startSinglePlayer"
+          data:
+            playerName: "RateLimitTest_{{ $randomNumber(1000, 9999) }}"
+      
+      - think: 0.5
+      
+      # Rapid fire shooting (should trigger rate limiting)
+      - loop:
+        - emit:
+            channel: "shoot"
+            data:
+              targetX: "{{ $randomNumber(-10, 10) }}"
+              targetY: "{{ $randomNumber(-5, 5) }}"
+              weapon: 1
+        - think: 0.02
+        count: 50
+      
+      - think: 1
+
+# Reporting configuration
+reporting:
+  - type: "json"
+    fileName: "load-test-results.json"
