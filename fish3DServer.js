@@ -28,6 +28,9 @@ const { sessionManager } = require('./src/session/SessionManager');
 const { serverCSPRNG } = require('./src/rng/CSPRNG');
 const { GAME_CONFIG } = require('./src/rng/HitMath');
 
+// Binary protocol modules (PDF Specification Section 4.3)
+const { BinaryWebSocketServer } = require('./src/protocol/BinaryWebSocketServer');
+
 process.on('uncaughtException', (err) => {
     console.error('[FATAL][uncaughtException]', err);
     console.error('Stack:', err.stack);
@@ -61,13 +64,14 @@ app.get('/health', (req, res) => {
         status: 'ok', 
         timestamp: new Date().toISOString(),
         rooms: Object.keys(rooms).length,
-        version: '3.2.0-20x-weapon',
+        version: '3.3.0-binary-protocol',
         fishSpeedScale: fishSpeedScale,
         security: {
             sessionManagement: true,
             csprng: true,
             aesGcmEncryption: true,
             hmacVerification: true,
+            binaryProtocol: true,
             rtpValues: {
                 '1x': '91.5%',
                 '3x': '94.5%',
@@ -76,7 +80,11 @@ app.get('/health', (req, res) => {
                 '20x': '99.9%'
             }
         },
-        activeSessions: sessionManager.getActiveSessionCount()
+        activeSessions: sessionManager.getActiveSessionCount(),
+        endpoints: {
+            socketIO: '/',
+            binaryWebSocket: '/ws-game'
+        }
     });
 });
 
@@ -559,10 +567,23 @@ process.on('SIGTERM', () => {
 
 const PORT = Number(process.env.PORT) || 3000;
 
+// Initialize Binary WebSocket Server (PDF Specification Section 4.3)
+// Runs alongside Socket.IO on /ws-game endpoint
+let binaryWsServer = null;
+try {
+    binaryWsServer = new BinaryWebSocketServer(server, gameEngines, rooms, {
+        path: '/ws-game'
+    });
+    console.log('[BINARY-WS] Binary WebSocket server initialized on /ws-game');
+} catch (err) {
+    console.error('[BINARY-WS] Failed to initialize Binary WebSocket server:', err.message);
+}
+
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`3D Fish Shooting Game Server running on port ${PORT}`);
     console.log(`Health check: http://0.0.0.0:${PORT}/health`);
     console.log(`Fish species API: http://0.0.0.0:${PORT}/api/fish-species`);
     console.log(`Weapons API: http://0.0.0.0:${PORT}/api/weapons`);
     console.log(`Rooms API: http://0.0.0.0:${PORT}/api/rooms`);
+    console.log(`Binary WebSocket: ws://0.0.0.0:${PORT}/ws-game`);
 });
