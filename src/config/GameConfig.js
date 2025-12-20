@@ -381,12 +381,17 @@ const RTP_ADJUSTMENT_CONFIG = {
 
 /**
  * Security Configuration
+ * ENABLED: When true, all messages are encrypted with AES-256-GCM and verified with HMAC-SHA256
+ * Set to false for development/testing, true for production
  */
 const SECURITY_CONFIG = {
+    ENABLED: false,
     SESSION_TIMEOUT_MS: 30 * 60 * 1000, // 30 minutes
     NONCE_WINDOW_SIZE: 1000,
     MAX_PACKETS_PER_SECOND: 60,
-    RATE_LIMIT_WINDOW_MS: 1000
+    RATE_LIMIT_WINDOW_MS: 1000,
+    ENCRYPTION_ALGORITHM: 'aes-256-gcm',
+    HMAC_ALGORITHM: 'sha256'
 };
 
 /**
