@@ -19,7 +19,7 @@
     "redis": "^5.9.0",
     "socket.io": "^4.7.2",
     "socket.io-client": "^4.8.1",
-    "ws": "^8.14.2"
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "jest": "^29.7.0",
