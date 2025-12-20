@@ -61,16 +61,19 @@ app.get('/health', (req, res) => {
         status: 'ok', 
         timestamp: new Date().toISOString(),
         rooms: Object.keys(rooms).length,
-        version: '3.1.0-weapon-update',
+        version: '3.2.0-20x-weapon',
         fishSpeedScale: fishSpeedScale,
         security: {
             sessionManagement: true,
             csprng: true,
+            aesGcmEncryption: true,
+            hmacVerification: true,
             rtpValues: {
-                '1x': '91%',
-                '3x': '93%',
-                '5x': '94%',
-                '8x': '95%'
+                '1x': '91.5%',
+                '3x': '94.5%',
+                '5x': '97.5%',
+                '8x': '99.5%',
+                '20x': '99.9%'
             }
         },
         activeSessions: sessionManager.getActiveSessionCount()
