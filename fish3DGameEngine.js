@@ -208,16 +208,19 @@ const FISH_SPECIES = {
 const TOTAL_SPAWN_WEIGHT = Object.values(FISH_SPECIES).reduce((sum, fish) => sum + fish.spawnWeight, 0);
 
 /**
- * Weapon Configuration - Updated Specification
- * RTP values: 1x=91%, 3x=93%, 5x=94%, 8x=95%
- * Note: 20x weapon removed per latest specification
+ * Weapon Configuration - PDF Specification
+ * RTP values: 1x=91.5%, 3x=94.5%, 5x=97.5%, 8x=99.5%, 20x=99.9%
+ * 20x weapon has penetrating feature - can hit up to 5 fish with damage reduction
  */
 const WEAPONS = {
-    '1x': { multiplier: 1, cost: 1, cooldown: 200, damage: 1, rtp: 0.91 },
-    '3x': { multiplier: 3, cost: 3, cooldown: 300, damage: 3, rtp: 0.93 },
-    '5x': { multiplier: 5, cost: 5, cooldown: 400, damage: 5, rtp: 0.94 },
-    '8x': { multiplier: 8, cost: 8, cooldown: 500, damage: 8, rtp: 0.95 }
+    '1x': { multiplier: 1, cost: 1, cooldown: 200, damage: 1, rtp: 0.915, features: [] },
+    '3x': { multiplier: 3, cost: 3, cooldown: 300, damage: 3, rtp: 0.945, features: [] },
+    '5x': { multiplier: 5, cost: 5, cooldown: 400, damage: 5, rtp: 0.975, features: [] },
+    '8x': { multiplier: 8, cost: 8, cooldown: 500, damage: 8, rtp: 0.995, features: [] },
+    '20x': { multiplier: 20, cost: 200, cooldown: 1000, damage: 20, rtp: 0.999, features: ['penetrating'], maxPenetrations: 5 }
 };
+
+const PENETRATING_DAMAGE_MULTIPLIERS = [1.0, 0.8, 0.6, 0.4, 0.2];
 
 /**
  * 3D Fish Shooting Game Engine
@@ -765,19 +768,26 @@ class Fish3DGameEngine {
     
     /**
      * Check bullet-fish collisions (2D line-circle intersection)
+     * Supports penetrating weapons (20x) that can hit up to 5 fish with damage reduction
      */
     checkCollisions(io) {
         for (const [bulletId, bullet] of this.bullets) {
             if (bullet.hasHit) continue;
             
+            const weapon = WEAPONS[bullet.weapon];
+            const isPenetrating = weapon && weapon.features && weapon.features.includes('penetrating');
+            const maxPenetrations = isPenetrating ? (weapon.maxPenetrations || 5) : 1;
+            let penetrationCount = bullet.penetrationCount || 0;
+            
+            const fishHitThisTick = [];
+            
             for (const [fishId, fish] of this.fish) {
                 if (!fish.isAlive) continue;
+                if (bullet.fishAlreadyHit && bullet.fishAlreadyHit.has(fishId)) continue;
                 
-                // Line-circle intersection test
                 const fishRadius = (fish.size / 10) * this.FISH_BASE_RADIUS;
                 const combinedRadius = fishRadius + this.BULLET_RADIUS;
                 
-                // Calculate distance from bullet to fish for debug logging
                 const distToFish = Math.sqrt(
                     Math.pow(bullet.x - fish.x, 2) + Math.pow(bullet.z - fish.z, 2)
                 );
@@ -789,54 +799,69 @@ class Fish3DGameEngine {
                     combinedRadius
                 );
                 
-                // Log near-misses and hits for debugging
                 if (distToFish < combinedRadius * 3) {
-                    console.log(`[FISH3D-ENGINE] COLLISION CHECK: bullet=${bulletId} pos=(${bullet.x.toFixed(1)},${bullet.z.toFixed(1)}) fish=${fishId} pos=(${fish.x.toFixed(1)},${fish.z.toFixed(1)}) dist=${distToFish.toFixed(1)} radius=${combinedRadius.toFixed(1)} hit=${hit}`);
+                    console.log(`[FISH3D-ENGINE] COLLISION CHECK: bullet=${bulletId} pos=(${bullet.x.toFixed(1)},${bullet.z.toFixed(1)}) fish=${fishId} pos=(${fish.x.toFixed(1)},${fish.z.toFixed(1)}) dist=${distToFish.toFixed(1)} radius=${combinedRadius.toFixed(1)} hit=${hit} penetrating=${isPenetrating}`);
                 }
                 
                 if (hit) {
+                    fishHitThisTick.push({ fishId, fish, distToFish });
+                }
+            }
+            
+            fishHitThisTick.sort((a, b) => a.distToFish - b.distToFish);
+            
+            for (const { fishId, fish } of fishHitThisTick) {
+                if (penetrationCount >= maxPenetrations) break;
+                
+                const damageMultiplier = isPenetrating ? PENETRATING_DAMAGE_MULTIPLIERS[penetrationCount] : 1.0;
+                const damage = Math.floor(bullet.damage * damageMultiplier);
+                const healthBefore = fish.health;
+                fish.health -= damage;
+                fish.lastHitBy = bullet.ownerSocketId;
+                
+                if (!bullet.fishAlreadyHit) bullet.fishAlreadyHit = new Set();
+                bullet.fishAlreadyHit.add(fishId);
+                penetrationCount++;
+                bullet.penetrationCount = penetrationCount;
+                
+                console.log(`[FISH3D-ENGINE] HIT! bulletId=${bulletId} fishId=${fishId} weapon=${bullet.weapon} damage=${damage} (multiplier=${damageMultiplier}) health: ${healthBefore} -> ${fish.health} penetration=${penetrationCount}/${maxPenetrations}`);
+                if (fish.health <= 0) {
+                    console.log(`[FISH3D-ENGINE] FISH KILLED! fishId=${fishId} type=${fish.typeName}`);
+                }
+                
+                const currentDamage = fish.damageByPlayer.get(bullet.ownerSocketId) || 0;
+                fish.damageByPlayer.set(bullet.ownerSocketId, currentDamage + damage);
+                
+                const shooter = this.players.get(bullet.ownerSocketId);
+                if (shooter) {
+                    shooter.totalHits++;
+                }
+                
+                io.to(this.roomCode).emit('fishHit', {
+                    fishId,
+                    bulletId,
+                    damage,
+                    newHealth: fish.health,
+                    maxHealth: fish.maxHealth,
+                    hitByPlayerId: shooter ? shooter.playerId : null,
+                    isPenetrating,
+                    penetrationIndex: penetrationCount - 1
+                });
+                
+                if (fish.health <= 0) {
+                    this.handleFishKill(fish, bullet, io);
+                }
+                
+                if (!isPenetrating) {
                     bullet.hasHit = true;
                     this.bullets.delete(bulletId);
-                    
-                    // Apply damage
-                    const damage = bullet.damage;
-                    const healthBefore = fish.health;
-                    fish.health -= damage;
-                    fish.lastHitBy = bullet.ownerSocketId;
-                    
-                    // DEBUG: Log hit and damage application
-                    console.log(`[FISH3D-ENGINE] HIT! bulletId=${bulletId} fishId=${fishId} weapon=${bullet.weapon} damage=${damage} health: ${healthBefore} -> ${fish.health} (maxHp=${fish.maxHealth})`);
-                    if (fish.health <= 0) {
-                        console.log(`[FISH3D-ENGINE] FISH KILLED! fishId=${fishId} type=${fish.typeName}`);
-                    }
-                    
-                    // Track damage per player
-                    const currentDamage = fish.damageByPlayer.get(bullet.ownerSocketId) || 0;
-                    fish.damageByPlayer.set(bullet.ownerSocketId, currentDamage + damage);
-                    
-                    // Update player stats
-                    const shooter = this.players.get(bullet.ownerSocketId);
-                    if (shooter) {
-                        shooter.totalHits++;
-                    }
-                    
-                    // Broadcast hit
-                    io.to(this.roomCode).emit('fishHit', {
-                        fishId,
-                        bulletId,
-                        damage,
-                        newHealth: fish.health,
-                        maxHealth: fish.maxHealth,
-                        hitByPlayerId: shooter ? shooter.playerId : null
-                    });
-                    
-                    // Check if fish is killed
-                    if (fish.health <= 0) {
-                        this.handleFishKill(fish, bullet, io);
-                    }
-                    
-                    break; // Bullet can only hit one fish
+                    break;
                 }
+            }
+            
+            if (isPenetrating && penetrationCount >= maxPenetrations) {
+                bullet.hasHit = true;
+                this.bullets.delete(bulletId);
             }
         }
     }

@@ -10,12 +10,12 @@
 
 /**
  * Weapon Configuration
- * RTP values from updated specification:
- * - 1x: 91%
- * - 3x: 93%
- * - 5x: 94%
- * - 8x: 95%
- * Note: 20x weapon removed per latest specification
+ * RTP values from PDF specification:
+ * - 1x: 91.5%
+ * - 3x: 94.5%
+ * - 5x: 97.5%
+ * - 8x: 99.5%
+ * - 20x: 99.9% (Penetrating Beam - can hit up to 5 fish)
  */
 const WEAPONS = {
     '1x': {
@@ -25,7 +25,7 @@ const WEAPONS = {
         cost: 1,
         cooldown: 200,
         damage: 1,
-        rtp: 0.91,
+        rtp: 0.915,
         features: []
     },
     '3x': {
@@ -35,7 +35,7 @@ const WEAPONS = {
         cost: 3,
         cooldown: 300,
         damage: 3,
-        rtp: 0.93,
+        rtp: 0.945,
         features: []
     },
     '5x': {
@@ -45,7 +45,7 @@ const WEAPONS = {
         cost: 5,
         cooldown: 400,
         damage: 5,
-        rtp: 0.94,
+        rtp: 0.975,
         features: []
     },
     '8x': {
@@ -55,9 +55,30 @@ const WEAPONS = {
         cost: 8,
         cooldown: 500,
         damage: 8,
-        rtp: 0.95,
+        rtp: 0.995,
         features: []
+    },
+    '20x': {
+        id: 5,
+        key: '20x',
+        multiplier: 20,
+        cost: 200,
+        cooldown: 1000,
+        damage: 20,
+        rtp: 0.999,
+        features: ['penetrating'],
+        maxPenetration: 5
     }
+};
+
+/**
+ * Penetrating Damage Configuration
+ * Damage multipliers for penetrating beam (20x weapon)
+ * Each subsequent fish hit receives reduced damage
+ */
+const PENETRATING_CONFIG = {
+    DAMAGE_MULTIPLIERS: [1.0, 0.8, 0.6, 0.4, 0.2],
+    MAX_TARGETS: 5
 };
 
 /**
@@ -433,6 +454,7 @@ function getSpawnWeights() {
 
 module.exports = {
     WEAPONS,
+    PENETRATING_CONFIG,
     FISH_SPECIES,
     SCENE_CONFIG,
     BOSS_CONFIG,
