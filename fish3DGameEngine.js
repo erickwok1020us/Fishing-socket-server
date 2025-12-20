@@ -7,7 +7,7 @@
  * - 4-player support with positioned cannons
  * - Pure Contribution-Based reward system (rewards distributed by damage percentage)
  * - Boss fish system
- * - Weapon multipliers (1x, 3x, 5x, 8x, 20x)
+ * - Weapon multipliers (1x, 3x, 5x, 8x)
  * - Seeded RNG for deterministic fish spawning
  */
 
@@ -209,15 +209,13 @@ const TOTAL_SPAWN_WEIGHT = Object.values(FISH_SPECIES).reduce((sum, fish) => sum
 
 /**
  * Weapon Configuration - PDF Specification
- * RTP values: 1x=91.5%, 3x=94.5%, 5x=97.5%, 8x=99.5%, 20x=99.9%
- * 20x weapon has penetrating feature - can hit up to 5 fish with damage reduction
+ * RTP values: 1x=91.5%, 3x=94.5%, 5x=97.5%, 8x=99.5%
  */
 const WEAPONS = {
     '1x': { multiplier: 1, cost: 1, cooldown: 200, damage: 1, rtp: 0.915, features: [] },
     '3x': { multiplier: 3, cost: 3, cooldown: 300, damage: 3, rtp: 0.945, features: [] },
     '5x': { multiplier: 5, cost: 5, cooldown: 400, damage: 5, rtp: 0.975, features: [] },
-    '8x': { multiplier: 8, cost: 8, cooldown: 500, damage: 8, rtp: 0.995, features: [] },
-    '20x': { multiplier: 20, cost: 200, cooldown: 1000, damage: 20, rtp: 0.999, features: ['penetrating'], maxPenetrations: 5 }
+    '8x': { multiplier: 8, cost: 8, cooldown: 500, damage: 8, rtp: 0.995, features: [] }
 };
 
 const PENETRATING_DAMAGE_MULTIPLIERS = [1.0, 0.8, 0.6, 0.4, 0.2];

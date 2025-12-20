@@ -22,8 +22,7 @@ const GAME_CONFIG = {
         { id: 1, key: '1x', multiplier: 1, cost: 1, rtp: 0.915, damage: 1, features: [] },
         { id: 2, key: '3x', multiplier: 3, cost: 3, rtp: 0.945, damage: 3, features: [] },
         { id: 3, key: '5x', multiplier: 5, cost: 5, rtp: 0.975, damage: 5, features: [] },
-        { id: 4, key: '8x', multiplier: 8, cost: 8, rtp: 0.995, damage: 8, features: [] },
-        { id: 5, key: '20x', multiplier: 20, cost: 200, rtp: 0.999, damage: 20, features: ['penetrating'], maxPenetration: 5 }
+        { id: 4, key: '8x', multiplier: 8, cost: 8, rtp: 0.995, damage: 8, features: [] }
     ],
     
     // Fish types from PDF specification
@@ -60,7 +59,7 @@ const GAME_CONFIG = {
         ADJUSTMENT_RATE_PER_SHOT: 0.001
     },
     
-    // Penetrating damage multipliers for 20x weapon
+    // Penetrating damage multipliers (for future use)
     PENETRATING_DAMAGE_MULTIPLIERS: [1.0, 0.8, 0.6, 0.4, 0.2]
 };
 
