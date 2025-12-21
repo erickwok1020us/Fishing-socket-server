@@ -46,6 +46,7 @@ const {
 } = require('./deserializer');
 const { performServerHandshake } = require('../security/HKDF');
 const BinaryPayloads = require('./payloads/BinaryPayloads');
+const Fish3DGameEngine = require('../../fish3DGameEngine');
 
 class BinarySession {
     constructor(ws, sessionId) {
@@ -304,43 +305,92 @@ class BinaryWebSocketServer {
             return;
         }
         
-        const player = room.players[session.playerId];
-        if (!player) {
-            session.sendError(ErrorCodes.INVALID_SESSION, 'Player not in room');
+        if (!engine.gameStarted) {
+            session.sendError(ErrorCodes.INVALID_SESSION, 'Game not started');
             return;
         }
         
-        const weapon = engine.WEAPONS[data.weaponId] || engine.WEAPONS['1x'];
-        const cost = weapon.cost || 1;
+        const enginePlayer = engine.players.get(session.sessionId);
+        if (!enginePlayer) {
+            session.sendError(ErrorCodes.INVALID_SESSION, 'Player not in engine');
+            return;
+        }
         
-        if (player.balance < cost) {
+        const weaponKey = data.weaponId ? String(data.weaponId) + 'x' : enginePlayer.currentWeapon;
+        const weapon = engine.WEAPONS ? engine.WEAPONS[weaponKey] : { cost: 1, damage: 1, multiplier: 1 };
+        const cost = weapon ? weapon.cost : 1;
+        
+        if (enginePlayer.balance < cost) {
             session.send(PacketId.BALANCE_UPDATE, {
                 playerId: session.playerId,
-                balance: player.balance,
+                balance: enginePlayer.balance,
                 change: 0,
-                reason: 'insufficient_balance'
+                reason: 'insufficient_balance',
+                timestamp: Date.now()
             });
             return;
         }
         
-        player.balance -= cost;
+        enginePlayer.balance -= cost;
+        enginePlayer.lastShotTime = Date.now();
+        enginePlayer.totalShots++;
         
-        const hitResult = {
-            shotSequenceId: data.shotSequenceId,
-            hits: [],
-            totalDamage: 0,
-            totalReward: 0,
-            newBalance: player.balance,
-            fishRemovedIds: []
+        const targetX = data.targetX || 0;
+        const targetZ = data.targetZ || data.targetY || 0;
+        
+        const dx = targetX - enginePlayer.cannonX;
+        const dz = targetZ - enginePlayer.cannonZ;
+        const distance = Math.sqrt(dx * dx + dz * dz);
+        
+        if (distance < 0.1) {
+            session.send(PacketId.BALANCE_UPDATE, {
+                playerId: session.playerId,
+                balance: enginePlayer.balance,
+                change: -cost,
+                reason: 'shot',
+                timestamp: Date.now()
+            });
+            return;
+        }
+        
+        const normalizedDx = dx / distance;
+        const normalizedDz = dz / distance;
+        
+        const bulletId = engine.nextBulletId++;
+        const bullet = {
+            bulletId,
+            ownerId: enginePlayer.playerId,
+            ownerSocketId: session.sessionId,
+            weapon: weaponKey,
+            damage: weapon ? weapon.damage : 1,
+            cost: cost,
+            x: enginePlayer.cannonX,
+            z: enginePlayer.cannonZ,
+            prevX: enginePlayer.cannonX,
+            prevZ: enginePlayer.cannonZ,
+            velocityX: normalizedDx * engine.BULLET_SPEED,
+            velocityZ: normalizedDz * engine.BULLET_SPEED,
+            rotation: Math.atan2(normalizedDx, -normalizedDz),
+            spawnTime: Date.now(),
+            hasHit: false,
+            shotSequenceId: data.shotSequenceId
         };
         
-        session.send(PacketId.HIT_RESULT, hitResult);
+        engine.bullets.set(bulletId, bullet);
         
-        this.broadcastToRoom(session.roomCode, PacketId.ROOM_SNAPSHOT, {
-            roomId: session.roomCode,
-            serverTime: Date.now(),
-            players: this.getPlayersSnapshot(room)
-        }, session.sessionId);
+        session.send(PacketId.BALANCE_UPDATE, {
+            playerId: session.playerId,
+            balance: enginePlayer.balance,
+            change: -cost,
+            reason: 'shot',
+            timestamp: Date.now()
+        });
+        
+        if (room.players[session.playerId]) {
+            room.players[session.playerId].balance = enginePlayer.balance;
+        }
+        
+        console.log(`[BINARY-WS] Shot fired: room=${session.roomCode} player=${session.playerId} bullet=${bulletId} target=(${targetX.toFixed(1)},${targetZ.toFixed(1)})`);
     }
     
     handleWeaponSwitch(session, data) {
@@ -369,6 +419,11 @@ class BinaryWebSocketServer {
         session.playerId = `player-${session.sessionId.substring(0, 8)}`;
         session.roomCode = roomCode;
         this.playerSessions.set(session.playerId, session);
+        
+        const engine = new Fish3DGameEngine(roomCode);
+        this.gameEngines[roomCode] = engine;
+        
+        engine.addPlayer(session.sessionId, session.playerId, data.playerName || 'Player');
         
         this.rooms[roomCode] = {
             roomCode,
@@ -399,13 +454,14 @@ class BinaryWebSocketServer {
             maxPlayers: 4
         });
         
-        console.log(`[BINARY-WS] Room created: ${roomCode} by ${session.playerId}`);
+        console.log(`[BINARY-WS] Room created: ${roomCode} by ${session.playerId} with game engine`);
     }
     
     handleRoomJoin(session, data) {
         const room = this.rooms[data.roomCode];
+        const engine = this.gameEngines[data.roomCode];
         
-        if (!room) {
+        if (!room || !engine) {
             session.sendError(ErrorCodes.INVALID_ROOM, 'Room not found');
             return;
         }
@@ -418,6 +474,8 @@ class BinaryWebSocketServer {
         session.playerId = `player-${session.sessionId.substring(0, 8)}`;
         session.roomCode = data.roomCode;
         this.playerSessions.set(session.playerId, session);
+        
+        engine.addPlayer(session.sessionId, session.playerId, data.playerName || 'Player');
         
         const position = room.playerCount;
         room.players[session.playerId] = {
@@ -471,12 +529,22 @@ class BinaryWebSocketServer {
         }
         
         const room = this.rooms[session.roomCode];
-        if (!room || room.hostId !== session.playerId) {
+        const engine = this.gameEngines[session.roomCode];
+        
+        if (!room || !engine) {
+            session.sendError(ErrorCodes.INVALID_ROOM, 'Room not found');
+            return;
+        }
+        
+        if (room.hostId !== session.playerId) {
             session.sendError(ErrorCodes.INVALID_SESSION, 'Only host can start game');
             return;
         }
         
         room.state = 'playing';
+        
+        const binaryIO = this.createBinaryIOAdapter(session.roomCode);
+        engine.startGameLoop(binaryIO);
         
         this.broadcastToRoom(session.roomCode, PacketId.ROOM_STATE, {
             roomId: session.roomCode,
@@ -487,7 +555,96 @@ class BinaryWebSocketServer {
             maxPlayers: 4
         });
         
-        console.log(`[BINARY-WS] Game started in room ${session.roomCode}`);
+        console.log(`[BINARY-WS] Game started in room ${session.roomCode} with engine game loop`);
+    }
+    
+    createBinaryIOAdapter(roomCode) {
+        const self = this;
+        return {
+            to: (target) => ({
+                emit: (eventName, data) => {
+                    self.handleEngineEvent(roomCode, target, eventName, data);
+                }
+            })
+        };
+    }
+    
+    handleEngineEvent(roomCode, target, eventName, data) {
+        const room = this.rooms[roomCode];
+        if (!room) return;
+        
+        switch (eventName) {
+            case 'fishHit':
+                if (target === roomCode) {
+                    this.broadcastToRoom(roomCode, PacketId.HIT_RESULT, {
+                        shotSequenceId: data.bulletId,
+                        hits: [{
+                            fishId: data.fishId,
+                            damage: data.damage,
+                            newHealth: data.newHealth,
+                            maxHealth: data.maxHealth
+                        }],
+                        totalDamage: data.damage,
+                        totalReward: 0,
+                        newBalance: 0,
+                        fishRemovedIds: [],
+                        timestamp: Date.now()
+                    });
+                }
+                break;
+                
+            case 'fishKilled':
+                if (target === roomCode) {
+                    this.broadcastToRoom(roomCode, PacketId.FISH_DEATH, {
+                        fishId: data.fishId,
+                        killedBy: data.topContributorId,
+                        reward: data.totalReward,
+                        timestamp: Date.now()
+                    });
+                }
+                break;
+                
+            case 'balanceUpdate':
+                const playerSession = this.findSessionBySocketId(target);
+                if (playerSession) {
+                    playerSession.send(PacketId.BALANCE_UPDATE, {
+                        playerId: playerSession.playerId,
+                        balance: data.balance,
+                        change: data.change,
+                        reason: data.reason,
+                        timestamp: Date.now()
+                    });
+                    if (room.players[playerSession.playerId]) {
+                        room.players[playerSession.playerId].balance = data.balance;
+                    }
+                }
+                break;
+                
+            case 'gameState':
+                if (target === roomCode) {
+                    this.broadcastToRoom(roomCode, PacketId.ROOM_SNAPSHOT, {
+                        roomId: roomCode,
+                        serverTime: Date.now(),
+                        bossTimer: data.bossTimer || 0,
+                        fish: data.fish || [],
+                        players: data.players || [],
+                        bullets: data.bullets || []
+                    });
+                }
+                break;
+                
+            default:
+                break;
+        }
+    }
+    
+    findSessionBySocketId(socketId) {
+        for (const [sessionId, session] of this.sessions) {
+            if (session.sessionId === socketId) {
+                return session;
+            }
+        }
+        return null;
     }
     
     handleClose(session) {
