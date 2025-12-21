@@ -11,9 +11,8 @@
  * 6. Validate Nonce (Monotonic)
  * 7. Dispatch by PacketId
  * 
- * Protocol V2 Header (20 bytes):
+ * Protocol V2 Header (19 bytes) - Exact PDF Specification:
  * - protocolVersion: uint8 (1 byte)
- * - reserved: uint8 (1 byte)
  * - packetId: uint16 (2 bytes, big-endian)
  * - payloadLength: uint32 (4 bytes, big-endian)
  * - checksum: uint32 (4 bytes, CRC32)
@@ -50,21 +49,23 @@ function parseHeader(buffer) {
     
     let offset = 0;
     
+    // uint8 protocolVersion (1 byte)
     const protocolVersion = buffer.readUInt8(offset);
     offset += 1;
     
-    const reserved = buffer.readUInt8(offset);
-    offset += 1;
-    
+    // uint16 packetId (2 bytes, big-endian)
     const packetId = buffer.readUInt16BE(offset);
     offset += 2;
     
+    // uint32 payloadLength (4 bytes, big-endian)
     const payloadLength = buffer.readUInt32BE(offset);
     offset += 4;
     
+    // uint32 checksum (4 bytes)
     const checksum = buffer.readUInt32BE(offset);
     offset += 4;
     
+    // uint64 nonce (8 bytes, big-endian)
     const nonce = Number(buffer.readBigUInt64BE(offset));
     
     return {
@@ -77,8 +78,9 @@ function parseHeader(buffer) {
 }
 
 function verifyChecksum(buffer, header) {
-    const headerWithoutChecksum = Buffer.alloc(8);
-    buffer.copy(headerWithoutChecksum, 0, 0, 8);
+    // Checksum covers: header bytes before checksum (7 bytes) + encrypted payload + GCM tag
+    const headerWithoutChecksum = Buffer.alloc(7);
+    buffer.copy(headerWithoutChecksum, 0, 0, 7);
     
     const encryptedPayloadStart = HEADER_SIZE;
     const encryptedPayloadEnd = HEADER_SIZE + header.payloadLength + GCM_TAG_SIZE;

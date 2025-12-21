@@ -6,15 +6,14 @@
  * JSON communication is strictly forbidden for real-time game state and actions.
  * 
  * Packet Structure (V2):
- * [Header (20 bytes)] + [Encrypted Payload] + [GCM Tag (16 bytes)] + [HMAC (32 bytes)]
+ * [Header (19 bytes)] + [Encrypted Payload] + [GCM Tag (16 bytes)] + [HMAC (32 bytes)]
  * 
- * Header Structure (20 bytes):
+ * Header Structure (19 bytes) - Exact PDF Specification:
  * - protocolVersion: uint8 (1 byte)
- * - reserved: uint8 (1 byte, for alignment)
- * - packetId: uint16 (2 bytes, big-endian) - Changed from uint8 per PDF spec
+ * - packetId: uint16 (2 bytes, big-endian)
  * - payloadLength: uint32 (4 bytes, big-endian)
  * - checksum: uint32 (4 bytes, CRC32)
- * - nonce: uint64 (8 bytes, big-endian) - Changed from uint48 per PDF spec
+ * - nonce: uint64 (8 bytes, big-endian)
  * 
  * Security Pipeline (Section 6):
  * 1. Read Raw Bytes
@@ -134,7 +133,7 @@ const PayloadSizeLimits = {
     [PacketId.DISCONNECT]: { min: 9, max: 16, fixed: true, size: 9 }
 };
 
-const HEADER_SIZE = 20;
+const HEADER_SIZE = 19;
 const GCM_TAG_SIZE = 16;
 const HMAC_SIZE = 32;
 const NONCE_SIZE = 12;

@@ -270,9 +270,9 @@ describe('Protocol Security Tests', () => {
 });
 
 describe('Protocol Header Tests', () => {
-    test('header is 20 bytes', () => {
+    test('header is 19 bytes (PDF specification)', () => {
         const { HEADER_SIZE } = require('../../src/protocol/packets');
-        expect(HEADER_SIZE).toBe(20);
+        expect(HEADER_SIZE).toBe(19);
     });
     
     test('protocol version is 2', () => {
