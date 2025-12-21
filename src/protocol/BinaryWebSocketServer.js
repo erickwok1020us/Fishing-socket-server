@@ -1,19 +1,29 @@
 /**
- * Binary WebSocket Server
+ * Binary WebSocket Server - Version 2 (Certification Compliant)
  * 
  * Implements the secure binary WebSocket server as specified in PDF Section 4.3.
  * Runs alongside the existing Socket.IO server on a separate endpoint (/ws-game).
  * 
  * Features:
+ * - ECDH (P-256) key exchange for session key establishment
+ * - HKDF-SHA256 for key derivation (RFC 5869)
  * - AES-256-GCM encryption
  * - HMAC-SHA256 authentication
  * - Nonce validation (replay protection)
  * - Full security pipeline per PDF Section 6
+ * 
+ * Handshake Flow:
+ * 1. Client sends HANDSHAKE_REQUEST with clientPublicKey (65 bytes) + clientNonce (32 bytes)
+ * 2. Server generates ECDH keypair, computes shared secret
+ * 3. Server derives session keys using HKDF
+ * 4. Server sends HANDSHAKE_RESPONSE with serverPublicKey + serverNonce + salt
+ * 5. Client derives same session keys using HKDF
+ * 6. Both sides now have identical encryptionKey and hmacKey
  */
 
 const WebSocket = require('ws');
 const crypto = require('crypto');
-const { PacketId, ErrorCodes, HEADER_SIZE, GCM_TAG_SIZE, HMAC_SIZE } = require('./packets');
+const { PacketId, ErrorCodes, HEADER_SIZE, GCM_TAG_SIZE, HMAC_SIZE, PROTOCOL_VERSION } = require('./packets');
 const { 
     serializePacket, 
     serializeHitResult, 
@@ -34,6 +44,8 @@ const {
     DeserializationError,
     getPayloadParser
 } = require('./deserializer');
+const { performServerHandshake } = require('../security/HKDF');
+const BinaryPayloads = require('./payloads/BinaryPayloads');
 
 class BinarySession {
     constructor(ws, sessionId) {
@@ -41,12 +53,18 @@ class BinarySession {
         this.sessionId = sessionId;
         this.playerId = null;
         this.roomCode = null;
-        this.encryptionKey = crypto.randomBytes(32);
-        this.hmacKey = crypto.randomBytes(32);
+        this.encryptionKey = null;
+        this.hmacKey = null;
         this.lastClientNonce = 0;
         this.serverNonce = 0;
         this.createdAt = Date.now();
         this.lastActivity = Date.now();
+        this.handshakeComplete = false;
+        this.clientPublicKey = null;
+        this.clientNonce = null;
+        this.serverPublicKey = null;
+        this.serverNonce32 = null;
+        this.salt = null;
     }
     
     getNextNonce() {
@@ -116,46 +134,75 @@ class BinaryWebSocketServer {
         const session = new BinarySession(ws, sessionId);
         this.sessions.set(sessionId, session);
         
-        console.log(`[BINARY-WS] New connection: ${sessionId}`);
-        
-        this.sendHandshakeResponse(session);
+        console.log(`[BINARY-WS] New connection: ${sessionId} - awaiting ECDH handshake`);
         
         ws.on('message', (data) => this.handleMessage(session, data));
         ws.on('close', () => this.handleClose(session));
         ws.on('error', (err) => this.handleError(session, err));
     }
     
-    sendHandshakeResponse(session) {
-        const payload = {
-            sessionId: session.sessionId,
-            encryptionKey: session.encryptionKey.toString('base64'),
-            hmacKey: session.hmacKey.toString('base64'),
-            serverTime: Date.now()
-        };
-        
-        const response = Buffer.alloc(4 + JSON.stringify(payload).length);
-        response.writeUInt8(1, 0);
-        response.writeUInt8(PacketId.HANDSHAKE_RESPONSE, 1);
-        response.writeUInt16BE(JSON.stringify(payload).length, 2);
-        Buffer.from(JSON.stringify(payload)).copy(response, 4);
-        
-        session.ws.send(response);
-        console.log(`[BINARY-WS] Sent handshake response to ${session.sessionId}`);
+    sendHandshakeResponse(session, clientPublicKey, clientNonce) {
+        try {
+            const handshakeResult = performServerHandshake(clientPublicKey, clientNonce, PROTOCOL_VERSION);
+            
+            session.encryptionKey = handshakeResult.encryptionKey;
+            session.hmacKey = handshakeResult.hmacKey;
+            session.serverPublicKey = handshakeResult.serverPublicKey;
+            session.serverNonce32 = handshakeResult.serverNonce;
+            session.salt = handshakeResult.salt;
+            session.clientPublicKey = clientPublicKey;
+            session.clientNonce = clientNonce;
+            session.handshakeComplete = true;
+            
+            const responsePayload = BinaryPayloads.encodeHandshakeResponse({
+                serverPublicKey: handshakeResult.serverPublicKey,
+                serverNonce: handshakeResult.serverNonce,
+                salt: handshakeResult.salt,
+                sessionId: session.sessionId
+            });
+            
+            const header = Buffer.alloc(4);
+            header.writeUInt8(PROTOCOL_VERSION, 0);
+            header.writeUInt8(0, 1);
+            header.writeUInt16BE(responsePayload.length, 2);
+            
+            const response = Buffer.concat([header, responsePayload]);
+            session.ws.send(response);
+            
+            console.log(`[BINARY-WS] ECDH handshake complete for ${session.sessionId}`);
+            return true;
+        } catch (err) {
+            console.error(`[BINARY-WS] Handshake failed for ${session.sessionId}:`, err.message);
+            session.ws.close();
+            return false;
+        }
     }
     
     handleMessage(session, data) {
         try {
             const buffer = Buffer.from(data);
             
-            if (buffer.length < HEADER_SIZE) {
-                session.sendError(ErrorCodes.INVALID_PACKET, 'Packet too small');
+            if (buffer.length < 4) {
+                console.error(`[BINARY-WS] Packet too small from ${session.sessionId}`);
+                session.ws.close();
                 return;
             }
             
-            const packetId = buffer.readUInt8(1);
+            const protocolVersion = buffer.readUInt8(0);
+            const packetIdOrReserved = buffer.readUInt8(1);
             
-            if (packetId === PacketId.HANDSHAKE_REQUEST) {
-                this.handleHandshakeRequest(session, buffer);
+            if (!session.handshakeComplete) {
+                if (buffer.length >= 98) {
+                    this.handleHandshakeRequest(session, buffer);
+                } else {
+                    console.error(`[BINARY-WS] Invalid handshake request from ${session.sessionId}`);
+                    session.ws.close();
+                }
+                return;
+            }
+            
+            if (buffer.length < HEADER_SIZE) {
+                session.sendError(ErrorCodes.INVALID_PACKET, 'Packet too small');
                 return;
             }
             
@@ -177,17 +224,36 @@ class BinaryWebSocketServer {
         } catch (err) {
             if (err instanceof DeserializationError) {
                 console.error(`[BINARY-WS] Deserialization error for ${session.sessionId}:`, err.message);
-                session.sendError(err.code, err.message);
+                if (session.handshakeComplete) {
+                    session.sendError(err.code, err.message);
+                }
                 session.ws.close();
             } else {
                 console.error(`[BINARY-WS] Unexpected error for ${session.sessionId}:`, err);
-                session.sendError(ErrorCodes.INVALID_PACKET, 'Internal error');
+                if (session.handshakeComplete) {
+                    session.sendError(ErrorCodes.INVALID_PACKET, 'Internal error');
+                }
             }
         }
     }
     
     handleHandshakeRequest(session, buffer) {
-        console.log(`[BINARY-WS] Handshake request from ${session.sessionId}`);
+        console.log(`[BINARY-WS] Processing ECDH handshake request from ${session.sessionId}`);
+        
+        try {
+            const handshakeData = BinaryPayloads.decodeHandshakeRequest(buffer);
+            
+            if (handshakeData.protocolVersion !== PROTOCOL_VERSION) {
+                console.error(`[BINARY-WS] Protocol version mismatch: expected ${PROTOCOL_VERSION}, got ${handshakeData.protocolVersion}`);
+                session.ws.close();
+                return;
+            }
+            
+            this.sendHandshakeResponse(session, handshakeData.clientPublicKey, handshakeData.clientNonce);
+        } catch (err) {
+            console.error(`[BINARY-WS] Failed to process handshake request from ${session.sessionId}:`, err.message);
+            session.ws.close();
+        }
     }
     
     dispatchPacket(session, packetId, payload) {
