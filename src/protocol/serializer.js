@@ -1,8 +1,16 @@
 /**
- * Binary Protocol Serializer
+ * Binary Protocol Serializer - Version 2 (Certification Compliant)
  * 
  * Serializes game data into binary packets following the PDF specification.
  * Handles encryption, HMAC, and packet structure.
+ * 
+ * Protocol V2 Header (20 bytes):
+ * - protocolVersion: uint8 (1 byte)
+ * - reserved: uint8 (1 byte)
+ * - packetId: uint16 (2 bytes, big-endian)
+ * - payloadLength: uint32 (4 bytes, big-endian)
+ * - checksum: uint32 (4 bytes, CRC32)
+ * - nonce: uint64 (8 bytes, big-endian)
  */
 
 const crypto = require('crypto');
@@ -14,6 +22,7 @@ const {
     HMAC_SIZE,
     NONCE_SIZE
 } = require('./packets');
+const BinaryPayloads = require('./payloads/BinaryPayloads');
 
 function calculateCRC32(buffer) {
     const crcTable = [];
@@ -39,8 +48,11 @@ function createHeader(packetId, payloadLength, nonce) {
     header.writeUInt8(PROTOCOL_VERSION, offset);
     offset += 1;
     
-    header.writeUInt8(packetId, offset);
+    header.writeUInt8(0, offset);
     offset += 1;
+    
+    header.writeUInt16BE(packetId, offset);
+    offset += 2;
     
     header.writeUInt32BE(payloadLength, offset);
     offset += 4;
@@ -48,23 +60,17 @@ function createHeader(packetId, payloadLength, nonce) {
     header.writeUInt32BE(0, offset);
     offset += 4;
     
-    const nonceHigh = Math.floor(nonce / 0x100000000);
-    const nonceLow = nonce % 0x100000000;
-    header.writeUInt16BE(nonceHigh & 0xFFFF, offset);
-    offset += 2;
-    header.writeUInt32BE(nonceLow, offset);
+    const bigNonce = BigInt(nonce);
+    header.writeBigUInt64BE(bigNonce, offset);
     
     return header;
 }
 
 function encryptPayload(plaintext, encryptionKey, nonce) {
     const iv = Buffer.alloc(NONCE_SIZE);
-    const nonceHigh = Math.floor(nonce / 0x100000000);
-    const nonceLow = nonce % 0x100000000;
-    iv.writeUInt32BE(0, 0);
-    iv.writeUInt16BE(nonceHigh & 0xFFFF, 4);
-    iv.writeUInt32BE(nonceLow, 6);
-    iv.writeUInt16BE(0, 10);
+    const bigNonce = BigInt(nonce);
+    iv.writeBigUInt64BE(bigNonce, 0);
+    iv.writeUInt32BE(0, 8);
     
     const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey, iv);
     const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
@@ -80,19 +86,19 @@ function computeHMAC(data, hmacKey) {
 }
 
 function serializePacket(packetId, payload, encryptionKey, hmacKey, nonce) {
-    const payloadBuffer = Buffer.isBuffer(payload) ? payload : Buffer.from(JSON.stringify(payload));
+    const payloadBuffer = Buffer.isBuffer(payload) ? payload : Buffer.from(payload);
     
     const { encrypted, authTag } = encryptPayload(payloadBuffer, encryptionKey, nonce);
     
     const header = createHeader(packetId, encrypted.length, nonce);
     
     const dataForChecksum = Buffer.concat([
-        header.slice(0, 6),
+        header.slice(0, 8),
         encrypted,
         authTag
     ]);
     const checksum = calculateCRC32(dataForChecksum);
-    header.writeUInt32BE(checksum, 6);
+    header.writeUInt32BE(checksum, 8);
     
     const dataForHMAC = Buffer.concat([header, encrypted, authTag]);
     const hmacValue = computeHMAC(dataForHMAC, hmacKey);
@@ -101,7 +107,7 @@ function serializePacket(packetId, payload, encryptionKey, hmacKey, nonce) {
 }
 
 function serializeShotFired(data, encryptionKey, hmacKey, nonce) {
-    const payload = {
+    const payload = BinaryPayloads.encodeShotFired({
         playerId: data.playerId,
         weaponId: data.weaponId,
         targetX: data.targetX,
@@ -112,52 +118,48 @@ function serializeShotFired(data, encryptionKey, hmacKey, nonce) {
         directionZ: data.directionZ,
         shotSequenceId: data.shotSequenceId,
         timestamp: data.timestamp || Date.now()
-    };
+    });
     return serializePacket(PacketId.SHOT_FIRED, payload, encryptionKey, hmacKey, nonce);
 }
 
 function serializeHitResult(data, encryptionKey, hmacKey, nonce) {
-    const payload = {
+    const payload = BinaryPayloads.encodeHitResult({
         shotSequenceId: data.shotSequenceId,
         hits: data.hits || [],
         totalDamage: data.totalDamage || 0,
         totalReward: data.totalReward || 0,
         newBalance: data.newBalance,
-        fishRemovedIds: data.fishRemovedIds || [],
         timestamp: data.timestamp || Date.now()
-    };
+    });
     return serializePacket(PacketId.HIT_RESULT, payload, encryptionKey, hmacKey, nonce);
 }
 
 function serializeBalanceUpdate(data, encryptionKey, hmacKey, nonce) {
-    const payload = {
+    const payload = BinaryPayloads.encodeBalanceUpdate({
         playerId: data.playerId,
         balance: data.balance,
         change: data.change || 0,
-        reason: data.reason || 'update',
+        reason: data.reason || 0x04,
         timestamp: data.timestamp || Date.now()
-    };
+    });
     return serializePacket(PacketId.BALANCE_UPDATE, payload, encryptionKey, hmacKey, nonce);
 }
 
 function serializeRoomSnapshot(data, encryptionKey, hmacKey, nonce) {
-    const payload = {
-        roomId: data.roomId,
+    const payload = BinaryPayloads.encodeRoomSnapshot({
+        roomCode: data.roomCode || data.roomId,
         serverTime: data.serverTime || Date.now(),
         bossTimer: data.bossTimer || 0,
         fish: data.fish || [],
-        players: data.players || [],
-        bullets: data.bullets || [],
-        removedFishIds: data.removedFishIds || [],
-        newFish: data.newFish || []
-    };
+        players: data.players || []
+    });
     return serializePacket(PacketId.ROOM_SNAPSHOT, payload, encryptionKey, hmacKey, nonce);
 }
 
 function serializeFishSpawn(data, encryptionKey, hmacKey, nonce) {
-    const payload = {
+    const payload = BinaryPayloads.encodeFishSpawn({
         fishId: data.fishId,
-        type: data.type,
+        fishType: data.type || data.fishType,
         x: data.x,
         y: data.y,
         z: data.z,
@@ -169,96 +171,132 @@ function serializeFishSpawn(data, encryptionKey, hmacKey, nonce) {
         velocityZ: data.velocityZ,
         isBoss: data.isBoss || false,
         timestamp: data.timestamp || Date.now()
-    };
+    });
     return serializePacket(PacketId.FISH_SPAWN, payload, encryptionKey, hmacKey, nonce);
 }
 
 function serializeFishDeath(data, encryptionKey, hmacKey, nonce) {
-    const payload = {
+    const payload = BinaryPayloads.encodeFishDeath({
         fishId: data.fishId,
         killedBy: data.killedBy,
         reward: data.reward,
-        rewardDistribution: data.rewardDistribution || [],
         timestamp: data.timestamp || Date.now()
-    };
+    });
     return serializePacket(PacketId.FISH_DEATH, payload, encryptionKey, hmacKey, nonce);
 }
 
 function serializeBossSpawn(data, encryptionKey, hmacKey, nonce) {
-    const payload = {
+    const payload = BinaryPayloads.encodeFishSpawn({
         fishId: data.fishId,
-        type: data.type,
+        fishType: data.type || data.fishType,
         x: data.x,
         y: data.y,
         z: data.z,
         hp: data.hp,
         maxHp: data.maxHp,
         reward: data.reward,
+        velocityX: 0,
+        velocityY: 0,
+        velocityZ: 0,
+        isBoss: true,
         timestamp: data.timestamp || Date.now()
-    };
+    });
     return serializePacket(PacketId.BOSS_SPAWN, payload, encryptionKey, hmacKey, nonce);
 }
 
 function serializeBossDeath(data, encryptionKey, hmacKey, nonce) {
-    const payload = {
+    const payload = BinaryPayloads.encodeFishDeath({
         fishId: data.fishId,
-        totalReward: data.totalReward,
-        rewardDistribution: data.rewardDistribution || [],
+        killedBy: data.killedBy || '',
+        reward: data.totalReward,
         timestamp: data.timestamp || Date.now()
-    };
+    });
     return serializePacket(PacketId.BOSS_DEATH, payload, encryptionKey, hmacKey, nonce);
 }
 
 function serializePlayerJoin(data, encryptionKey, hmacKey, nonce) {
-    const payload = {
+    const payload = BinaryPayloads.encodePlayerJoin({
         playerId: data.playerId,
         playerName: data.playerName,
         position: data.position,
         balance: data.balance,
-        weapon: data.weapon,
+        weaponId: data.weapon || data.weaponId || 1,
         timestamp: data.timestamp || Date.now()
-    };
+    });
     return serializePacket(PacketId.PLAYER_JOIN, payload, encryptionKey, hmacKey, nonce);
 }
 
 function serializePlayerLeave(data, encryptionKey, hmacKey, nonce) {
-    const payload = {
+    const payload = BinaryPayloads.encodePlayerLeave({
         playerId: data.playerId,
-        reason: data.reason || 'disconnect',
+        reason: typeof data.reason === 'number' ? data.reason : 0x01,
         timestamp: data.timestamp || Date.now()
-    };
+    });
     return serializePacket(PacketId.PLAYER_LEAVE, payload, encryptionKey, hmacKey, nonce);
 }
 
 function serializeRoomState(data, encryptionKey, hmacKey, nonce) {
-    const payload = {
-        roomId: data.roomId,
-        roomCode: data.roomCode,
+    const payload = BinaryPayloads.encodeRoomState({
+        roomCode: data.roomCode || data.roomId,
         state: data.state,
         players: data.players || [],
         hostId: data.hostId,
         maxPlayers: data.maxPlayers || 4,
         timestamp: data.timestamp || Date.now()
-    };
+    });
     return serializePacket(PacketId.ROOM_STATE, payload, encryptionKey, hmacKey, nonce);
 }
 
 function serializeTimeSyncPong(data, encryptionKey, hmacKey, nonce) {
-    const payload = {
+    const payload = BinaryPayloads.encodeTimeSyncPong({
         seq: data.seq,
         serverTime: data.serverTime || Date.now(),
         clientSendTime: data.clientSendTime
-    };
+    });
     return serializePacket(PacketId.TIME_SYNC_PONG, payload, encryptionKey, hmacKey, nonce);
 }
 
 function serializeError(data, encryptionKey, hmacKey, nonce) {
-    const payload = {
+    const payload = BinaryPayloads.encodeError({
         code: data.code,
-        message: data.message || '',
-        timestamp: data.timestamp || Date.now()
-    };
+        message: data.message || ''
+    });
     return serializePacket(PacketId.ERROR, payload, encryptionKey, hmacKey, nonce);
+}
+
+function serializeHandshakeResponse(data, encryptionKey, hmacKey, nonce) {
+    const payload = BinaryPayloads.encodeHandshakeResponse({
+        serverPublicKey: data.serverPublicKey,
+        serverNonce: data.serverNonce,
+        salt: data.salt,
+        sessionId: data.sessionId
+    });
+    return serializePacket(PacketId.HANDSHAKE_RESPONSE, payload, encryptionKey, hmacKey, nonce);
+}
+
+function serializeGameStart(data, encryptionKey, hmacKey, nonce) {
+    const payload = BinaryPayloads.encodeGameStart({
+        timestamp: data.timestamp || Date.now()
+    });
+    return serializePacket(PacketId.GAME_START, payload, encryptionKey, hmacKey, nonce);
+}
+
+function serializeRoomCreate(data, encryptionKey, hmacKey, nonce) {
+    const payload = BinaryPayloads.encodeRoomCreate({
+        playerName: data.playerName,
+        isPublic: data.isPublic,
+        timestamp: data.timestamp || Date.now()
+    });
+    return serializePacket(PacketId.ROOM_CREATE, payload, encryptionKey, hmacKey, nonce);
+}
+
+function serializeRoomJoin(data, encryptionKey, hmacKey, nonce) {
+    const payload = BinaryPayloads.encodeRoomJoin({
+        roomCode: data.roomCode,
+        playerName: data.playerName,
+        timestamp: data.timestamp || Date.now()
+    });
+    return serializePacket(PacketId.ROOM_JOIN, payload, encryptionKey, hmacKey, nonce);
 }
 
 module.exports = {
@@ -279,5 +317,9 @@ module.exports = {
     serializePlayerLeave,
     serializeRoomState,
     serializeTimeSyncPong,
-    serializeError
+    serializeError,
+    serializeHandshakeResponse,
+    serializeGameStart,
+    serializeRoomCreate,
+    serializeRoomJoin
 };

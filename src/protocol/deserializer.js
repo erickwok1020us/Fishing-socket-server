@@ -1,5 +1,5 @@
 /**
- * Binary Protocol Deserializer
+ * Binary Protocol Deserializer - Version 2 (Certification Compliant)
  * 
  * Deserializes binary packets following the PDF specification Section 6.
  * Implements the mandatory security processing pipeline:
@@ -10,6 +10,14 @@
  * 5. Decrypt AES-GCM Payload
  * 6. Validate Nonce (Monotonic)
  * 7. Dispatch by PacketId
+ * 
+ * Protocol V2 Header (20 bytes):
+ * - protocolVersion: uint8 (1 byte)
+ * - reserved: uint8 (1 byte)
+ * - packetId: uint16 (2 bytes, big-endian)
+ * - payloadLength: uint32 (4 bytes, big-endian)
+ * - checksum: uint32 (4 bytes, CRC32)
+ * - nonce: uint64 (8 bytes, big-endian)
  */
 
 const crypto = require('crypto');
@@ -25,6 +33,7 @@ const {
     isValidPayloadSize
 } = require('./packets');
 const { calculateCRC32 } = require('./serializer');
+const BinaryPayloads = require('./payloads/BinaryPayloads');
 
 class DeserializationError extends Error {
     constructor(code, message) {
@@ -44,8 +53,11 @@ function parseHeader(buffer) {
     const protocolVersion = buffer.readUInt8(offset);
     offset += 1;
     
-    const packetId = buffer.readUInt8(offset);
+    const reserved = buffer.readUInt8(offset);
     offset += 1;
+    
+    const packetId = buffer.readUInt16BE(offset);
+    offset += 2;
     
     const payloadLength = buffer.readUInt32BE(offset);
     offset += 4;
@@ -53,10 +65,7 @@ function parseHeader(buffer) {
     const checksum = buffer.readUInt32BE(offset);
     offset += 4;
     
-    const nonceHigh = buffer.readUInt16BE(offset);
-    offset += 2;
-    const nonceLow = buffer.readUInt32BE(offset);
-    const nonce = nonceHigh * 0x100000000 + nonceLow;
+    const nonce = Number(buffer.readBigUInt64BE(offset));
     
     return {
         protocolVersion,
@@ -68,8 +77,8 @@ function parseHeader(buffer) {
 }
 
 function verifyChecksum(buffer, header) {
-    const headerWithoutChecksum = Buffer.alloc(6);
-    buffer.copy(headerWithoutChecksum, 0, 0, 6);
+    const headerWithoutChecksum = Buffer.alloc(8);
+    buffer.copy(headerWithoutChecksum, 0, 0, 8);
     
     const encryptedPayloadStart = HEADER_SIZE;
     const encryptedPayloadEnd = HEADER_SIZE + header.payloadLength + GCM_TAG_SIZE;
@@ -111,12 +120,9 @@ function decryptPayload(buffer, header, encryptionKey) {
     const authTag = buffer.slice(tagStart, tagEnd);
     
     const iv = Buffer.alloc(NONCE_SIZE);
-    const nonceHigh = Math.floor(header.nonce / 0x100000000);
-    const nonceLow = header.nonce % 0x100000000;
-    iv.writeUInt32BE(0, 0);
-    iv.writeUInt16BE(nonceHigh & 0xFFFF, 4);
-    iv.writeUInt32BE(nonceLow, 6);
-    iv.writeUInt16BE(0, 10);
+    const bigNonce = BigInt(header.nonce);
+    iv.writeBigUInt64BE(bigNonce, 0);
+    iv.writeUInt32BE(0, 8);
     
     try {
         const decipher = crypto.createDecipheriv('aes-256-gcm', encryptionKey, iv);
@@ -168,11 +174,12 @@ function deserializePacket(buffer, encryptionKey, hmacKey, lastNonce = 0) {
     
     validateNonce(header.nonce, lastNonce);
     
+    const decoder = getBinaryDecoder(header.packetId);
     let payload;
     try {
-        payload = JSON.parse(decrypted.toString('utf8'));
+        payload = decoder(decrypted);
     } catch (err) {
-        throw new DeserializationError(ErrorCodes.INVALID_PACKET, 'Invalid JSON payload');
+        throw new DeserializationError(ErrorCodes.INVALID_PACKET, 'Invalid binary payload: ' + err.message);
     }
     
     return {
@@ -180,6 +187,32 @@ function deserializePacket(buffer, encryptionKey, hmacKey, lastNonce = 0) {
         nonce: header.nonce,
         payload
     };
+}
+
+function getBinaryDecoder(packetId) {
+    const decoders = {
+        [PacketId.HANDSHAKE_REQUEST]: BinaryPayloads.decodeHandshakeRequest,
+        [PacketId.HANDSHAKE_RESPONSE]: BinaryPayloads.decodeHandshakeResponse,
+        [PacketId.SHOT_FIRED]: BinaryPayloads.decodeShotFired,
+        [PacketId.HIT_RESULT]: BinaryPayloads.decodeHitResult,
+        [PacketId.BALANCE_UPDATE]: BinaryPayloads.decodeBalanceUpdate,
+        [PacketId.WEAPON_SWITCH]: BinaryPayloads.decodeWeaponSwitch,
+        [PacketId.ROOM_SNAPSHOT]: BinaryPayloads.decodeRoomSnapshot,
+        [PacketId.FISH_SPAWN]: BinaryPayloads.decodeFishSpawn,
+        [PacketId.FISH_DEATH]: BinaryPayloads.decodeFishDeath,
+        [PacketId.BOSS_SPAWN]: BinaryPayloads.decodeFishSpawn,
+        [PacketId.BOSS_DEATH]: BinaryPayloads.decodeFishDeath,
+        [PacketId.PLAYER_JOIN]: BinaryPayloads.decodePlayerJoin,
+        [PacketId.PLAYER_LEAVE]: BinaryPayloads.decodePlayerLeave,
+        [PacketId.ROOM_CREATE]: BinaryPayloads.decodeRoomCreate,
+        [PacketId.ROOM_JOIN]: BinaryPayloads.decodeRoomJoin,
+        [PacketId.ROOM_STATE]: BinaryPayloads.decodeRoomState,
+        [PacketId.GAME_START]: BinaryPayloads.decodeGameStart,
+        [PacketId.TIME_SYNC_PING]: BinaryPayloads.decodeTimeSyncPing,
+        [PacketId.TIME_SYNC_PONG]: BinaryPayloads.decodeTimeSyncPong,
+        [PacketId.ERROR]: BinaryPayloads.decodeError
+    };
+    return decoders[packetId] || ((buf) => buf);
 }
 
 function parseShotFired(payload) {
@@ -345,6 +378,7 @@ module.exports = {
     decryptPayload,
     validateNonce,
     deserializePacket,
+    getBinaryDecoder,
     parseShotFired,
     parseHitResult,
     parseBalanceUpdate,
