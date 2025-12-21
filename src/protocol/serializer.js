@@ -4,9 +4,8 @@
  * Serializes game data into binary packets following the PDF specification.
  * Handles encryption, HMAC, and packet structure.
  * 
- * Protocol V2 Header (20 bytes):
+ * Protocol V2 Header (19 bytes) - Exact PDF Specification:
  * - protocolVersion: uint8 (1 byte)
- * - reserved: uint8 (1 byte)
  * - packetId: uint16 (2 bytes, big-endian)
  * - payloadLength: uint32 (4 bytes, big-endian)
  * - checksum: uint32 (4 bytes, CRC32)
@@ -45,21 +44,23 @@ function createHeader(packetId, payloadLength, nonce) {
     const header = Buffer.alloc(HEADER_SIZE);
     let offset = 0;
     
+    // uint8 protocolVersion (1 byte)
     header.writeUInt8(PROTOCOL_VERSION, offset);
     offset += 1;
     
-    header.writeUInt8(0, offset);
-    offset += 1;
-    
+    // uint16 packetId (2 bytes, big-endian)
     header.writeUInt16BE(packetId, offset);
     offset += 2;
     
+    // uint32 payloadLength (4 bytes, big-endian)
     header.writeUInt32BE(payloadLength, offset);
     offset += 4;
     
+    // uint32 checksum placeholder (4 bytes)
     header.writeUInt32BE(0, offset);
     offset += 4;
     
+    // uint64 nonce (8 bytes, big-endian)
     const bigNonce = BigInt(nonce);
     header.writeBigUInt64BE(bigNonce, offset);
     
@@ -92,13 +93,14 @@ function serializePacket(packetId, payload, encryptionKey, hmacKey, nonce) {
     
     const header = createHeader(packetId, encrypted.length, nonce);
     
+    // Checksum covers: header bytes before checksum (7 bytes) + encrypted payload + GCM tag
     const dataForChecksum = Buffer.concat([
-        header.slice(0, 8),
+        header.slice(0, 7),
         encrypted,
         authTag
     ]);
     const checksum = calculateCRC32(dataForChecksum);
-    header.writeUInt32BE(checksum, 8);
+    header.writeUInt32BE(checksum, 7); // Checksum at offset 7 in 19-byte header
     
     const dataForHMAC = Buffer.concat([header, encrypted, authTag]);
     const hmacValue = computeHMAC(dataForHMAC, hmacKey);

@@ -10,16 +10,15 @@ The protocol uses a fixed-size binary header followed by an encrypted payload. A
 
 Current version: **2**
 
-## Header Format (20 bytes)
+## Header Format (19 bytes) - Exact PDF Specification
 
 | Offset | Size | Type | Field | Description |
 |--------|------|------|-------|-------------|
 | 0 | 1 | uint8 | protocolVersion | Protocol version (2) |
-| 1 | 1 | uint8 | reserved | Reserved for future use (0) |
-| 2 | 2 | uint16 | packetId | Packet type identifier |
-| 4 | 4 | uint32 | payloadLength | Length of encrypted payload |
-| 8 | 4 | uint32 | checksum | CRC32 of header + encrypted payload |
-| 12 | 8 | uint64 | nonce | Monotonically increasing nonce |
+| 1 | 2 | uint16 | packetId | Packet type identifier |
+| 3 | 4 | uint32 | payloadLength | Length of encrypted payload |
+| 7 | 4 | uint32 | checksum | CRC32 of header (first 7 bytes) + encrypted payload + GCM tag |
+| 11 | 8 | uint64 | nonce | Monotonically increasing nonce |
 
 ## Security Pipeline
 
@@ -33,7 +32,7 @@ All packets (except initial handshake) follow this processing order:
 5. Concatenate: header + encrypted payload + GCM tag (16 bytes) + HMAC (32 bytes)
 
 ### Receiving
-1. Parse header (20 bytes)
+1. Parse header (19 bytes)
 2. Validate protocol version
 3. Validate packet ID against whitelist
 4. Validate payload size against limits
