@@ -242,7 +242,10 @@ class BinaryWebSocketServer {
         console.log(`[BINARY-WS] Processing ECDH handshake request from ${session.sessionId}`);
         
         try {
-            const handshakeData = BinaryPayloads.decodeHandshakeRequest(buffer);
+            // Skip the 4-byte header: [version (1)] + [reserved (1)] + [payloadLength (2)]
+            // The payload starts at offset 4
+            const payload = buffer.slice(4);
+            const handshakeData = BinaryPayloads.decodeHandshakeRequest(payload);
             
             if (handshakeData.protocolVersion !== PROTOCOL_VERSION) {
                 console.error(`[BINARY-WS] Protocol version mismatch: expected ${PROTOCOL_VERSION}, got ${handshakeData.protocolVersion}`);
