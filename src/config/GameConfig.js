@@ -10,11 +10,11 @@
 
 /**
  * Weapon Configuration
- * RTP values from PDF specification:
- * - 1x: 91.5%
- * - 3x: 94.5%
- * - 5x: 97.5%
- * - 8x: 99.5%
+ * RTP values - Updated configuration:
+ * - 1x: 91%
+ * - 3x: 93%
+ * - 5x: 94%
+ * - 8x: 95%
  */
 const WEAPONS = {
     '1x': {
@@ -24,7 +24,7 @@ const WEAPONS = {
         cost: 1,
         cooldown: 200,
         damage: 1,
-        rtp: 0.915,
+        rtp: 0.91,
         features: []
     },
     '3x': {
@@ -34,7 +34,7 @@ const WEAPONS = {
         cost: 3,
         cooldown: 300,
         damage: 3,
-        rtp: 0.945,
+        rtp: 0.93,
         features: []
     },
     '5x': {
@@ -44,7 +44,7 @@ const WEAPONS = {
         cost: 5,
         cooldown: 400,
         damage: 5,
-        rtp: 0.975,
+        rtp: 0.94,
         features: []
     },
     '8x': {
@@ -54,7 +54,7 @@ const WEAPONS = {
         cost: 8,
         cooldown: 500,
         damage: 8,
-        rtp: 0.995,
+        rtp: 0.95,
         features: []
     }
 };
