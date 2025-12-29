@@ -496,6 +496,10 @@ class Fish3DGameEngine {
             // Damage tracking (for last-hit-wins)
             lastHitBy: null,
             damageByPlayer: new Map(),
+            // Cost tracking for RTP calculation (cost spent by each player on this fish)
+            costByPlayer: new Map(),
+            // RTP-weighted cost tracking (cost * weapon.rtp for each player)
+            rtpWeightedCostByPlayer: new Map(),
             
             // Flags
             isBoss: fishType.isBoss || false,
@@ -839,53 +843,37 @@ class Fish3DGameEngine {
                 penetrationCount++;
                 bullet.penetrationCount = penetrationCount;
                 
-                const captureProb = (weapon.rtp * weapon.cost) / fish.multiplier;
-                const clampedCaptureProb = Math.min(1.0, Math.max(0.01, captureProb));
-                const roll = this.rng.nextFloat();
-                const isCaptured = roll < clampedCaptureProb;
+                // Track cost spent on this fish for RTP calculation
+                const currentCost = fish.costByPlayer.get(bullet.ownerSocketId) || 0;
+                fish.costByPlayer.set(bullet.ownerSocketId, currentCost + weapon.cost);
                 
-                if (isCaptured) {
-                    fish.health = 0;
-                    fish.lastHitBy = bullet.ownerSocketId;
-                    fish.damageByPlayer.set(bullet.ownerSocketId, fish.maxHealth);
-                    
-                    io.to(this.roomCode).emit('fishHit', {
-                        fishId,
-                        bulletId,
-                        damage: fish.maxHealth,
-                        newHealth: 0,
-                        maxHealth: fish.maxHealth,
-                        hitByPlayerId: shooter ? shooter.playerId : null,
-                        isPenetrating,
-                        penetrationIndex: penetrationCount - 1,
-                        captured: true
-                    });
-                    
-                    this.handleFishCapture(fish, bullet, io);
-                } else {
-                    const damageMultiplier = isPenetrating ? PENETRATING_DAMAGE_MULTIPLIERS[penetrationCount - 1] : 1.0;
-                    const damage = Math.floor(bullet.damage * damageMultiplier);
-                    fish.health -= damage;
-                    fish.lastHitBy = bullet.ownerSocketId;
-                    
-                    const currentDamage = fish.damageByPlayer.get(bullet.ownerSocketId) || 0;
-                    fish.damageByPlayer.set(bullet.ownerSocketId, currentDamage + damage);
-                    
-                    io.to(this.roomCode).emit('fishHit', {
-                        fishId,
-                        bulletId,
-                        damage,
-                        newHealth: fish.health,
-                        maxHealth: fish.maxHealth,
-                        hitByPlayerId: shooter ? shooter.playerId : null,
-                        isPenetrating,
-                        penetrationIndex: penetrationCount - 1,
-                        captured: false
-                    });
-                    
-                    if (fish.health <= 0) {
-                        this.handleFishKill(fish, bullet, io);
-                    }
+                // Track RTP-weighted cost (cost * weapon.rtp) for reward calculation
+                const currentRtpWeightedCost = fish.rtpWeightedCostByPlayer.get(bullet.ownerSocketId) || 0;
+                fish.rtpWeightedCostByPlayer.set(bullet.ownerSocketId, currentRtpWeightedCost + (weapon.cost * weapon.rtp));
+                
+                // Apply damage
+                const damageMultiplier = isPenetrating ? PENETRATING_DAMAGE_MULTIPLIERS[penetrationCount - 1] : 1.0;
+                const damage = Math.floor(bullet.damage * damageMultiplier);
+                fish.health -= damage;
+                fish.lastHitBy = bullet.ownerSocketId;
+                
+                const currentDamage = fish.damageByPlayer.get(bullet.ownerSocketId) || 0;
+                fish.damageByPlayer.set(bullet.ownerSocketId, currentDamage + damage);
+                
+                io.to(this.roomCode).emit('fishHit', {
+                    fishId,
+                    bulletId,
+                    damage,
+                    newHealth: fish.health,
+                    maxHealth: fish.maxHealth,
+                    hitByPlayerId: shooter ? shooter.playerId : null,
+                    isPenetrating,
+                    penetrationIndex: penetrationCount - 1
+                });
+                
+                // Only pay reward when fish dies (HP <= 0)
+                if (fish.health <= 0) {
+                    this.handleFishKill(fish, bullet, io);
                 }
                 
                 if (!isPenetrating) {
@@ -903,130 +891,88 @@ class Fish3DGameEngine {
     }
     
     /**
-     * Handle fish kill (Pure Contribution-Based reward system)
-     * Rewards are distributed proportionally based on damage dealt by each player
+     * Handle fish kill - Cost-based RTP reward system
+     * Reward = sum of (cost * weapon.rtp) for each player's hits on this fish
+     * This guarantees RTP = weapon.rtp regardless of fish HP or multiplier
      */
-    handleFishCapture(fish, bullet, io) {
-        fish.isAlive = false;
-        
-        const shooter = this.players.get(bullet.ownerSocketId);
-        if (!shooter) {
-            this.fish.delete(fish.fishId);
-            return;
-        }
-        
-        const baseReward = fish.multiplier;
-        shooter.balance += baseReward;
-        shooter.score += baseReward;
-        shooter.totalKills++;
-        
-        io.to(bullet.ownerSocketId).emit('balanceUpdate', {
-            balance: shooter.balance,
-            change: baseReward,
-            reason: 'capture',
-            fishType: fish.typeName
-        });
-        
-        if (fish.isBoss) {
-            this.killsSinceLastBoss = 0;
-            if (fish.fishId === this.currentBoss) {
-                this.currentBoss = null;
-            }
-        } else {
-            this.killsSinceLastBoss++;
-        }
-        
-        io.to(this.roomCode).emit('fishKilled', {
-            fishId: fish.fishId,
-            typeName: fish.typeName,
-            topContributorId: shooter.playerId,
-            totalReward: baseReward,
-            rewardDistribution: [{
-                playerId: shooter.playerId,
-                socketId: bullet.ownerSocketId,
-                damage: fish.maxHealth,
-                percent: 100,
-                reward: baseReward
-            }],
-            isBoss: fish.isBoss,
-            position: { x: fish.x, z: fish.z },
-            captured: true
-        });
-        
-        if (fish.isSpecial && fish.specialType === 'bomb') {
-            this.handleBombExplosion(fish, shooter, io);
-        }
-        
-        this.fish.delete(fish.fishId);
-    }
-    
     handleFishKill(fish, bullet, io) {
         fish.isAlive = false;
         
-        let totalDamage = 0;
-        for (const [socketId, damage] of fish.damageByPlayer) {
-            totalDamage += damage;
+        // Calculate total RTP-weighted cost (this is the total reward pool)
+        let totalRtpWeightedCost = 0;
+        for (const [socketId, rtpWeightedCost] of fish.rtpWeightedCostByPlayer) {
+            totalRtpWeightedCost += rtpWeightedCost;
         }
         
-        if (totalDamage === 0) {
+        // If no cost was tracked (shouldn't happen), fall back to 0 reward
+        if (totalRtpWeightedCost === 0) {
             this.fish.delete(fish.fishId);
             return;
         }
         
-        const baseReward = fish.multiplier;
+        // Round total reward to nearest integer
+        const totalReward = Math.round(totalRtpWeightedCost);
         
         const rewardDistribution = [];
         let totalDistributed = 0;
         
-        if (baseReward > 0) {
-            const contributors = [];
-            for (const [socketId, damage] of fish.damageByPlayer) {
-                const player = this.players.get(socketId);
-                if (player) {
-                    contributors.push({ socketId, player, damage, percent: damage / totalDamage });
-                }
-            }
-            
-            contributors.sort((a, b) => b.damage - a.damage);
-            
-            for (let i = 0; i < contributors.length; i++) {
-                const { socketId, player, damage, percent } = contributors[i];
-                let playerReward;
-                if (i === contributors.length - 1) {
-                    playerReward = baseReward - totalDistributed;
-                } else {
-                    playerReward = Math.floor(baseReward * percent);
-                }
-                totalDistributed += playerReward;
-                
-                if (playerReward > 0) {
-                    player.balance += playerReward;
-                    player.score += playerReward;
-                    
-                    rewardDistribution.push({
-                        playerId: player.playerId,
-                        socketId: socketId,
-                        damage: damage,
-                        percent: Math.round(percent * 100),
-                        reward: playerReward
-                    });
-                    
-                    io.to(socketId).emit('balanceUpdate', {
-                        balance: player.balance,
-                        change: playerReward,
-                        reason: 'contribution',
-                        fishType: fish.typeName,
-                        contributionPercent: Math.round(percent * 100)
-                    });
-                }
+        // Distribute rewards to each player based on their RTP-weighted cost
+        const contributors = [];
+        for (const [socketId, rtpWeightedCost] of fish.rtpWeightedCostByPlayer) {
+            const player = this.players.get(socketId);
+            if (player && rtpWeightedCost > 0) {
+                const cost = fish.costByPlayer.get(socketId) || 0;
+                contributors.push({ 
+                    socketId, 
+                    player, 
+                    cost,
+                    rtpWeightedCost,
+                    percent: rtpWeightedCost / totalRtpWeightedCost 
+                });
             }
         }
         
+        contributors.sort((a, b) => b.rtpWeightedCost - a.rtpWeightedCost);
+        
+        for (let i = 0; i < contributors.length; i++) {
+            const { socketId, player, cost, rtpWeightedCost, percent } = contributors[i];
+            let playerReward;
+            // Last player gets remainder to avoid rounding errors
+            if (i === contributors.length - 1) {
+                playerReward = totalReward - totalDistributed;
+            } else {
+                playerReward = Math.floor(totalReward * percent);
+            }
+            totalDistributed += playerReward;
+            
+            if (playerReward > 0) {
+                player.balance += playerReward;
+                player.score += playerReward;
+                
+                rewardDistribution.push({
+                    playerId: player.playerId,
+                    socketId: socketId,
+                    cost: cost,
+                    percent: Math.round(percent * 100),
+                    reward: playerReward
+                });
+                
+                io.to(socketId).emit('balanceUpdate', {
+                    balance: player.balance,
+                    change: playerReward,
+                    reason: 'fishKill',
+                    fishType: fish.typeName,
+                    contributionPercent: Math.round(percent * 100)
+                });
+            }
+        }
+        
+        // Find top contributor for kill credit
         let topContributor = null;
-        let maxDamage = 0;
-        for (const [socketId, damage] of fish.damageByPlayer) {
-            if (damage > maxDamage) {
-                maxDamage = damage;
+        let maxCost = 0;
+        for (const [socketId, cost] of fish.costByPlayer) {
+            if (cost > maxCost) {
+                maxCost = cost;
                 topContributor = this.players.get(socketId);
             }
         }
@@ -1048,7 +994,7 @@ class Fish3DGameEngine {
             fishId: fish.fishId,
             typeName: fish.typeName,
             topContributorId: topContributor ? topContributor.playerId : null,
-            totalReward: baseReward,
+            totalReward: totalReward,
             rewardDistribution: rewardDistribution,
             isBoss: fish.isBoss,
             position: { x: fish.x, z: fish.z }
