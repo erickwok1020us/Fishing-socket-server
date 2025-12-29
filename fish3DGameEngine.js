@@ -54,135 +54,155 @@ class SeededRNG {
  * - Tier 5 (Rare): HP 400-600, Reward 40-60x, Spawn 4%
  * - Tier 6 (Boss): HP 1000-2000, Reward 100-200x, Spawn 1%
  */
+/**
+ * Fish Species Configuration - Casino-Grade RTP Compliance
+ * 
+ * RTP (Return to Player) is calculated as: reward / cost_to_kill
+ * - reward = fish.multiplier * weapon.multiplier
+ * - cost_to_kill = ceil(fish.health / weapon.damage) * weapon.cost
+ * 
+ * For 1x weapon (cost=1, damage=1, multiplier=1):
+ * - RTP = fish.multiplier / fish.health
+ * 
+ * Target RTP by tier (per PDF specification):
+ * - Tier 1 (Small): 91% RTP
+ * - Tier 2 (Common): 92% RTP
+ * - Tier 3 (Medium): 93% RTP
+ * - Tier 4 (Large): 94% RTP
+ * - Tier 5 (Rare): 94.5% RTP
+ * - Tier 6 (Boss): 95% RTP
+ * 
+ * Multiplier formula: multiplier = floor(health * targetRTP)
+ */
 const FISH_SPECIES = {
-    // ==================== TIER 6: BOSS (1% spawn rate, HP 1000-2000) ====================
+    // ==================== TIER 6: BOSS (1% spawn rate, HP 1000-2000, 95% RTP) ====================
     blueWhale: {
         id: 1, name: 'Blue Whale', category: 'boss', tier: 6,
-        health: 2000, hpRange: [1000, 2000], multiplier: 200, rewardRange: [100, 200],
+        health: 2000, hpRange: [1000, 2000], multiplier: 1900, rewardRange: [950, 1900],
         speed: 25, size: 140, spawnWeight: 0.7, isBoss: true, isLegendary: true,
         color: 0x4477aa, movementPattern: 'cruise'
     },
     greatWhiteShark: {
         id: 2, name: 'Great White Shark', category: 'boss', tier: 6,
-        health: 1500, hpRange: [1000, 2000], multiplier: 150, rewardRange: [100, 200],
+        health: 1500, hpRange: [1000, 2000], multiplier: 1425, rewardRange: [950, 1900],
         speed: 60, size: 100, spawnWeight: 0.3, isBoss: true,
         color: 0x667788, movementPattern: 'burstAttack'
     },
     
-    // ==================== TIER 5: RARE (4% spawn rate, HP 400-600) ====================
+    // ==================== TIER 5: RARE (4% spawn rate, HP 400-600, 94.5% RTP) ====================
     marlin: {
         id: 3, name: 'Marlin', category: 'rare', tier: 5,
-        health: 500, hpRange: [400, 600], multiplier: 50, rewardRange: [40, 60],
+        health: 500, hpRange: [400, 600], multiplier: 472, rewardRange: [378, 567],
         speed: 100, size: 80, spawnWeight: 1.5,
         color: 0x2266aa, movementPattern: 'burstSprint'
     },
     hammerheadShark: {
         id: 4, name: 'Hammerhead Shark', category: 'rare', tier: 5,
-        health: 550, hpRange: [400, 600], multiplier: 55, rewardRange: [40, 60],
+        health: 550, hpRange: [400, 600], multiplier: 520, rewardRange: [378, 567],
         speed: 50, size: 85, spawnWeight: 1.5,
         color: 0x556677, movementPattern: 'sShape'
     },
     goldenDragon: {
         id: 23, name: 'Golden Dragon Fish', category: 'rare', tier: 5,
-        health: 600, hpRange: [400, 600], multiplier: 60, rewardRange: [40, 60],
+        health: 600, hpRange: [400, 600], multiplier: 567, rewardRange: [378, 567],
         speed: 70, size: 75, spawnWeight: 1, isSpecial: true, specialType: 'golden',
         color: 0xffd700, movementPattern: 'elegantGlide'
     },
     
-    // ==================== TIER 4: LARGE (10% spawn rate, HP 200-300) ====================
+    // ==================== TIER 4: LARGE (10% spawn rate, HP 200-300, 94% RTP) ====================
     yellowfinTuna: {
         id: 5, name: 'Yellowfin Tuna', category: 'large', tier: 4,
-        health: 250, hpRange: [200, 300], multiplier: 25, rewardRange: [20, 30],
+        health: 250, hpRange: [200, 300], multiplier: 235, rewardRange: [188, 282],
         speed: 80, size: 50, spawnWeight: 4,
         color: 0x3355aa, movementPattern: 'synchronizedFast'
     },
     mahiMahi: {
         id: 6, name: 'Mahi-Mahi', category: 'large', tier: 4,
-        health: 200, hpRange: [200, 300], multiplier: 20, rewardRange: [20, 30],
+        health: 200, hpRange: [200, 300], multiplier: 188, rewardRange: [188, 282],
         speed: 70, size: 45, spawnWeight: 3,
         color: 0x44aa44, movementPattern: 'irregularTurns'
     },
     mantaRay: {
         id: 17, name: 'Manta Ray', category: 'large', tier: 4,
-        health: 300, hpRange: [200, 300], multiplier: 30, rewardRange: [20, 30],
+        health: 300, hpRange: [200, 300], multiplier: 282, rewardRange: [188, 282],
         speed: 45, size: 90, spawnWeight: 3,
         color: 0x222233, movementPattern: 'wingGlide'
     },
     
-    // ==================== TIER 3: MEDIUM (15% spawn rate, HP 100-150) ====================
+    // ==================== TIER 3: MEDIUM (15% spawn rate, HP 100-150, 93% RTP) ====================
     barracuda: {
         id: 7, name: 'Barracuda', category: 'medium', tier: 3,
-        health: 120, hpRange: [100, 150], multiplier: 12, rewardRange: [10, 15],
+        health: 120, hpRange: [100, 150], multiplier: 112, rewardRange: [93, 140],
         speed: 90, size: 55, spawnWeight: 5,
         color: 0xaabbcc, movementPattern: 'ambush'
     },
     grouper: {
         id: 8, name: 'Grouper', category: 'medium', tier: 3,
-        health: 150, hpRange: [100, 150], multiplier: 15, rewardRange: [10, 15],
+        health: 150, hpRange: [100, 150], multiplier: 140, rewardRange: [93, 140],
         speed: 30, size: 60, spawnWeight: 5,
         color: 0x886644, movementPattern: 'bottomBurst'
     },
     parrotfish: {
         id: 9, name: 'Parrotfish', category: 'medium', tier: 3,
-        health: 100, hpRange: [100, 150], multiplier: 10, rewardRange: [10, 15],
+        health: 100, hpRange: [100, 150], multiplier: 93, rewardRange: [93, 140],
         speed: 45, size: 35, spawnWeight: 5,
         color: 0x44ddaa, movementPattern: 'stopAndGo'
     },
     
-    // ==================== TIER 2: COMMON (30% spawn rate, HP 50-80) ====================
+    // ==================== TIER 2: COMMON (30% spawn rate, HP 50-80, 92% RTP) ====================
     angelfish: {
         id: 10, name: 'Angelfish', category: 'common', tier: 2,
-        health: 60, hpRange: [50, 80], multiplier: 6, rewardRange: [5, 8],
+        health: 60, hpRange: [50, 80], multiplier: 55, rewardRange: [46, 74],
         speed: 40, size: 30, spawnWeight: 10,
         color: 0xffdd44, movementPattern: 'elegantGlide'
     },
     butterflyfish: {
         id: 11, name: 'Butterflyfish', category: 'common', tier: 2,
-        health: 50, hpRange: [50, 80], multiplier: 5, rewardRange: [5, 8],
+        health: 50, hpRange: [50, 80], multiplier: 46, rewardRange: [46, 74],
         speed: 50, size: 22, spawnWeight: 10,
         color: 0xffffaa, movementPattern: 'agileWeave'
     },
     blueTang: {
         id: 12, name: 'Blue Tang', category: 'common', tier: 2,
-        health: 70, hpRange: [50, 80], multiplier: 7, rewardRange: [5, 8],
+        health: 70, hpRange: [50, 80], multiplier: 64, rewardRange: [46, 74],
         speed: 55, size: 20, spawnWeight: 10,
         color: 0x2288ff, movementPattern: 'groupCoordination'
     },
     
-    // ==================== TIER 1: SMALL (40% spawn rate, HP 20-30) ====================
+    // ==================== TIER 1: SMALL (40% spawn rate, HP 20-30, 91% RTP) ====================
     sardine: {
         id: 13, name: 'Sardine', category: 'small', tier: 1,
-        health: 20, hpRange: [20, 30], multiplier: 2, rewardRange: [2, 3],
+        health: 20, hpRange: [20, 30], multiplier: 18, rewardRange: [18, 27],
         speed: 90, size: 10, spawnWeight: 15,
         color: 0xccddee, movementPattern: 'waveFormation'
     },
     anchovy: {
         id: 14, name: 'Anchovy', category: 'small', tier: 1,
-        health: 20, hpRange: [20, 30], multiplier: 2, rewardRange: [2, 3],
+        health: 20, hpRange: [20, 30], multiplier: 18, rewardRange: [18, 27],
         speed: 100, size: 8, spawnWeight: 15,
         color: 0xaabbcc, movementPattern: 'baitBall'
     },
     clownfish: {
         id: 15, name: 'Clownfish', category: 'small', tier: 1,
-        health: 25, hpRange: [20, 30], multiplier: 2, rewardRange: [2, 3],
+        health: 25, hpRange: [20, 30], multiplier: 23, rewardRange: [18, 27],
         speed: 35, size: 15, spawnWeight: 10,
         color: 0xff6600, movementPattern: 'territorial'
     },
     damselfish: {
         id: 16, name: 'Damselfish', category: 'small', tier: 1,
-        health: 30, hpRange: [20, 30], multiplier: 3, rewardRange: [2, 3],
+        health: 30, hpRange: [20, 30], multiplier: 27, rewardRange: [18, 27],
         speed: 60, size: 12, spawnWeight: 10,
         color: 0x6644ff, movementPattern: 'defensiveCharge'
     },
     pufferfish: {
         id: 18, name: 'Pufferfish', category: 'small', tier: 1,
-        health: 30, hpRange: [20, 30], multiplier: 3, rewardRange: [2, 3],
+        health: 30, hpRange: [20, 30], multiplier: 27, rewardRange: [18, 27],
         speed: 25, size: 25, spawnWeight: 5,
         color: 0xddcc88, movementPattern: 'slowRotation'
     },
     seahorse: {
         id: 19, name: 'Seahorse', category: 'small', tier: 1,
-        health: 25, hpRange: [20, 30], multiplier: 2, rewardRange: [2, 3],
+        health: 25, hpRange: [20, 30], multiplier: 23, rewardRange: [18, 27],
         speed: 18, size: 20, spawnWeight: 5,
         color: 0xffaa44, movementPattern: 'verticalDrift'
     },
@@ -197,7 +217,7 @@ const FISH_SPECIES = {
     },
     electricEel: {
         id: 22, name: 'Electric Eel', category: 'special', tier: 3,
-        health: 120, hpRange: [100, 150], multiplier: 12, rewardRange: [10, 15],
+        health: 120, hpRange: [100, 150], multiplier: 112, rewardRange: [93, 140],
         speed: 50, size: 50, spawnWeight: 1.5, isSpecial: true, specialType: 'chain',
         color: 0x00ffff, movementPattern: 'snakeWave',
         chainTargets: 3, chainDamage: 30
@@ -207,15 +227,11 @@ const FISH_SPECIES = {
 // Calculate total spawn weight
 const TOTAL_SPAWN_WEIGHT = Object.values(FISH_SPECIES).reduce((sum, fish) => sum + fish.spawnWeight, 0);
 
-/**
- * Weapon Configuration - PDF Specification
- * RTP values: 1x=91.5%, 3x=94.5%, 5x=97.5%, 8x=99.5%
- */
 const WEAPONS = {
-    '1x': { multiplier: 1, cost: 1, cooldown: 200, damage: 1, rtp: 0.915, features: [] },
-    '3x': { multiplier: 3, cost: 3, cooldown: 300, damage: 3, rtp: 0.945, features: [] },
-    '5x': { multiplier: 5, cost: 5, cooldown: 400, damage: 5, rtp: 0.975, features: [] },
-    '8x': { multiplier: 8, cost: 8, cooldown: 500, damage: 8, rtp: 0.995, features: [] }
+    '1x': { multiplier: 1, cost: 1, cooldown: 200, damage: 1, rtp: 0.91, features: [] },
+    '3x': { multiplier: 3, cost: 3, cooldown: 300, damage: 3, rtp: 0.93, features: [] },
+    '5x': { multiplier: 5, cost: 5, cooldown: 400, damage: 5, rtp: 0.94, features: [] },
+    '8x': { multiplier: 8, cost: 8, cooldown: 500, damage: 8, rtp: 0.95, features: [] }
 };
 
 const PENETRATING_DAMAGE_MULTIPLIERS = [1.0, 0.8, 0.6, 0.4, 0.2];
@@ -871,7 +887,6 @@ class Fish3DGameEngine {
     handleFishKill(fish, bullet, io) {
         fish.isAlive = false;
         
-        // Calculate total damage dealt to this fish
         let totalDamage = 0;
         for (const [socketId, damage] of fish.damageByPlayer) {
             totalDamage += damage;
@@ -882,48 +897,62 @@ class Fish3DGameEngine {
             return;
         }
         
-        // Calculate base reward: fish multiplier * weapon multiplier of killing blow
-        const weapon = WEAPONS[bullet.weapon];
-        const baseReward = fish.multiplier * weapon.multiplier;
+        const weapon = WEAPONS[bullet.weapon] || WEAPONS['1x'];
+        const effectiveMultiplier = fish.multiplier / fish.maxHealth;
+        let payoutProbability = weapon.rtp / effectiveMultiplier;
+        payoutProbability = Math.min(1.0, Math.max(0.01, payoutProbability));
         
-        // Track rewards for broadcasting
+        const roll = this.rng.nextFloat();
+        const isPayout = roll < payoutProbability;
+        const baseReward = isPayout ? fish.multiplier : 0;
+        
         const rewardDistribution = [];
+        let totalDistributed = 0;
         
-        // Distribute rewards proportionally to all contributors
-        for (const [socketId, damage] of fish.damageByPlayer) {
-            const player = this.players.get(socketId);
-            if (!player) continue;
+        if (baseReward > 0) {
+            const contributors = [];
+            for (const [socketId, damage] of fish.damageByPlayer) {
+                const player = this.players.get(socketId);
+                if (player) {
+                    contributors.push({ socketId, player, damage, percent: damage / totalDamage });
+                }
+            }
             
-            // Calculate this player's share based on damage contribution percentage
-            const contributionPercent = damage / totalDamage;
-            const playerReward = Math.round(baseReward * contributionPercent);
+            contributors.sort((a, b) => b.damage - a.damage);
             
-            if (playerReward > 0) {
-                // Award to contributor
-                player.balance += playerReward;
-                player.score += playerReward;
+            for (let i = 0; i < contributors.length; i++) {
+                const { socketId, player, damage, percent } = contributors[i];
+                let playerReward;
+                if (i === contributors.length - 1) {
+                    playerReward = baseReward - totalDistributed;
+                } else {
+                    playerReward = Math.floor(baseReward * percent);
+                }
+                totalDistributed += playerReward;
                 
-                // Track contribution for stats (only count as kill for highest contributor)
-                rewardDistribution.push({
-                    playerId: player.playerId,
-                    socketId: socketId,
-                    damage: damage,
-                    percent: Math.round(contributionPercent * 100),
-                    reward: playerReward
-                });
-                
-                // Send balance update to this player
-                io.to(socketId).emit('balanceUpdate', {
-                    balance: player.balance,
-                    change: playerReward,
-                    reason: 'contribution',
-                    fishType: fish.typeName,
-                    contributionPercent: Math.round(contributionPercent * 100)
-                });
+                if (playerReward > 0) {
+                    player.balance += playerReward;
+                    player.score += playerReward;
+                    
+                    rewardDistribution.push({
+                        playerId: player.playerId,
+                        socketId: socketId,
+                        damage: damage,
+                        percent: Math.round(percent * 100),
+                        reward: playerReward
+                    });
+                    
+                    io.to(socketId).emit('balanceUpdate', {
+                        balance: player.balance,
+                        change: playerReward,
+                        reason: 'contribution',
+                        fishType: fish.typeName,
+                        contributionPercent: Math.round(percent * 100)
+                    });
+                }
             }
         }
         
-        // Find highest contributor for kill credit
         let topContributor = null;
         let maxDamage = 0;
         for (const [socketId, damage] of fish.damageByPlayer) {
@@ -933,23 +962,19 @@ class Fish3DGameEngine {
             }
         }
         
-        // Award kill credit to top contributor
         if (topContributor) {
             topContributor.totalKills++;
         }
         
-        // Track boss kills
         if (fish.isBoss) {
             this.killsSinceLastBoss = 0;
             if (fish.fishId === this.currentBoss) {
                 this.currentBoss = null;
             }
-            console.log(`[FISH3D-ENGINE] BOSS KILLED: ${fish.typeName} - Rewards distributed to ${rewardDistribution.length} players`);
         } else {
             this.killsSinceLastBoss++;
         }
         
-        // Broadcast kill with contribution details
         io.to(this.roomCode).emit('fishKilled', {
             fishId: fish.fishId,
             typeName: fish.typeName,
@@ -960,7 +985,6 @@ class Fish3DGameEngine {
             position: { x: fish.x, z: fish.z }
         });
         
-        // Handle special fish abilities (bomb explosion attributed to top contributor)
         if (fish.isSpecial && fish.specialType === 'bomb' && topContributor) {
             this.handleBombExplosion(fish, topContributor, io);
         }
