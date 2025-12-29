@@ -681,10 +681,12 @@ class Fish3DGameEngine {
                 // DEBUG: Log fish count every 60 ticks (1 second at 60 tick rate)
                 if (this.serverTick % 60 === 0) {
                     const fishTypes = {};
+                    let movingFish = 0;
                     for (const [id, fish] of this.fish) {
                         fishTypes[fish.typeName] = (fishTypes[fish.typeName] || 0) + 1;
+                        if (fish.velocityX !== 0 || fish.velocityZ !== 0) movingFish++;
                     }
-                    console.log(`[FISH3D-ENGINE] Room ${this.roomCode} tick=${this.serverTick}: fish.size=${this.fish.size}, bullets=${this.bullets.size}, types=${JSON.stringify(fishTypes)}`);
+                    console.log(`[FISH3D-ENGINE] Room ${this.roomCode} tick=${this.serverTick}: fish=${this.fish.size} (moving=${movingFish}), bullets=${this.bullets.size}, players=${this.players.size}`);
                 }
                 
                 // Update fish positions
@@ -827,43 +829,63 @@ class Fish3DGameEngine {
             for (const { fishId, fish } of fishHitThisTick) {
                 if (penetrationCount >= maxPenetrations) break;
                 
-                const damageMultiplier = isPenetrating ? PENETRATING_DAMAGE_MULTIPLIERS[penetrationCount] : 1.0;
-                const damage = Math.floor(bullet.damage * damageMultiplier);
-                const healthBefore = fish.health;
-                fish.health -= damage;
-                fish.lastHitBy = bullet.ownerSocketId;
+                const shooter = this.players.get(bullet.ownerSocketId);
+                if (shooter) {
+                    shooter.totalHits++;
+                }
                 
                 if (!bullet.fishAlreadyHit) bullet.fishAlreadyHit = new Set();
                 bullet.fishAlreadyHit.add(fishId);
                 penetrationCount++;
                 bullet.penetrationCount = penetrationCount;
                 
-                console.log(`[FISH3D-ENGINE] HIT! bulletId=${bulletId} fishId=${fishId} weapon=${bullet.weapon} damage=${damage} (multiplier=${damageMultiplier}) health: ${healthBefore} -> ${fish.health} penetration=${penetrationCount}/${maxPenetrations}`);
-                if (fish.health <= 0) {
-                    console.log(`[FISH3D-ENGINE] FISH KILLED! fishId=${fishId} type=${fish.typeName}`);
-                }
+                const captureProb = (weapon.rtp * weapon.cost) / fish.multiplier;
+                const clampedCaptureProb = Math.min(1.0, Math.max(0.01, captureProb));
+                const roll = this.rng.nextFloat();
+                const isCaptured = roll < clampedCaptureProb;
                 
-                const currentDamage = fish.damageByPlayer.get(bullet.ownerSocketId) || 0;
-                fish.damageByPlayer.set(bullet.ownerSocketId, currentDamage + damage);
-                
-                const shooter = this.players.get(bullet.ownerSocketId);
-                if (shooter) {
-                    shooter.totalHits++;
-                }
-                
-                io.to(this.roomCode).emit('fishHit', {
-                    fishId,
-                    bulletId,
-                    damage,
-                    newHealth: fish.health,
-                    maxHealth: fish.maxHealth,
-                    hitByPlayerId: shooter ? shooter.playerId : null,
-                    isPenetrating,
-                    penetrationIndex: penetrationCount - 1
-                });
-                
-                if (fish.health <= 0) {
-                    this.handleFishKill(fish, bullet, io);
+                if (isCaptured) {
+                    fish.health = 0;
+                    fish.lastHitBy = bullet.ownerSocketId;
+                    fish.damageByPlayer.set(bullet.ownerSocketId, fish.maxHealth);
+                    
+                    io.to(this.roomCode).emit('fishHit', {
+                        fishId,
+                        bulletId,
+                        damage: fish.maxHealth,
+                        newHealth: 0,
+                        maxHealth: fish.maxHealth,
+                        hitByPlayerId: shooter ? shooter.playerId : null,
+                        isPenetrating,
+                        penetrationIndex: penetrationCount - 1,
+                        captured: true
+                    });
+                    
+                    this.handleFishCapture(fish, bullet, io);
+                } else {
+                    const damageMultiplier = isPenetrating ? PENETRATING_DAMAGE_MULTIPLIERS[penetrationCount - 1] : 1.0;
+                    const damage = Math.floor(bullet.damage * damageMultiplier);
+                    fish.health -= damage;
+                    fish.lastHitBy = bullet.ownerSocketId;
+                    
+                    const currentDamage = fish.damageByPlayer.get(bullet.ownerSocketId) || 0;
+                    fish.damageByPlayer.set(bullet.ownerSocketId, currentDamage + damage);
+                    
+                    io.to(this.roomCode).emit('fishHit', {
+                        fishId,
+                        bulletId,
+                        damage,
+                        newHealth: fish.health,
+                        maxHealth: fish.maxHealth,
+                        hitByPlayerId: shooter ? shooter.playerId : null,
+                        isPenetrating,
+                        penetrationIndex: penetrationCount - 1,
+                        captured: false
+                    });
+                    
+                    if (fish.health <= 0) {
+                        this.handleFishKill(fish, bullet, io);
+                    }
                 }
                 
                 if (!isPenetrating) {
@@ -884,6 +906,60 @@ class Fish3DGameEngine {
      * Handle fish kill (Pure Contribution-Based reward system)
      * Rewards are distributed proportionally based on damage dealt by each player
      */
+    handleFishCapture(fish, bullet, io) {
+        fish.isAlive = false;
+        
+        const shooter = this.players.get(bullet.ownerSocketId);
+        if (!shooter) {
+            this.fish.delete(fish.fishId);
+            return;
+        }
+        
+        const baseReward = fish.multiplier;
+        shooter.balance += baseReward;
+        shooter.score += baseReward;
+        shooter.totalKills++;
+        
+        io.to(bullet.ownerSocketId).emit('balanceUpdate', {
+            balance: shooter.balance,
+            change: baseReward,
+            reason: 'capture',
+            fishType: fish.typeName
+        });
+        
+        if (fish.isBoss) {
+            this.killsSinceLastBoss = 0;
+            if (fish.fishId === this.currentBoss) {
+                this.currentBoss = null;
+            }
+        } else {
+            this.killsSinceLastBoss++;
+        }
+        
+        io.to(this.roomCode).emit('fishKilled', {
+            fishId: fish.fishId,
+            typeName: fish.typeName,
+            topContributorId: shooter.playerId,
+            totalReward: baseReward,
+            rewardDistribution: [{
+                playerId: shooter.playerId,
+                socketId: bullet.ownerSocketId,
+                damage: fish.maxHealth,
+                percent: 100,
+                reward: baseReward
+            }],
+            isBoss: fish.isBoss,
+            position: { x: fish.x, z: fish.z },
+            captured: true
+        });
+        
+        if (fish.isSpecial && fish.specialType === 'bomb') {
+            this.handleBombExplosion(fish, shooter, io);
+        }
+        
+        this.fish.delete(fish.fishId);
+    }
+    
     handleFishKill(fish, bullet, io) {
         fish.isAlive = false;
         
@@ -897,14 +973,7 @@ class Fish3DGameEngine {
             return;
         }
         
-        const weapon = WEAPONS[bullet.weapon] || WEAPONS['1x'];
-        const effectiveMultiplier = fish.multiplier / fish.maxHealth;
-        let payoutProbability = weapon.rtp / effectiveMultiplier;
-        payoutProbability = Math.min(1.0, Math.max(0.01, payoutProbability));
-        
-        const roll = this.rng.nextFloat();
-        const isPayout = roll < payoutProbability;
-        const baseReward = isPayout ? fish.multiplier : 0;
+        const baseReward = fish.multiplier;
         
         const rewardDistribution = [];
         let totalDistributed = 0;
