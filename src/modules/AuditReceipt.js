@@ -40,7 +40,7 @@ class ReceiptChain {
         this.prevHash = receiptHash;
 
         try {
-            fs.appendFileSync(this.filePath, receiptJson + '\n');
+            fs.appendFileSync(this.filePath, JSON.stringify(receipt) + '\n');
         } catch (e) {
             console.warn('[AUDIT] Cannot write receipt:', e.message);
         }

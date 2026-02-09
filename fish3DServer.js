@@ -37,7 +37,6 @@ const { sequenceTracker } = require('./src/modules/SequenceTracker');
 const { validateTimestamp } = require('./src/modules/LagCompensation');
 const { anomalyDetector } = require('./src/modules/AnomalyDetector');
 const { ConfigHashManager } = require('./src/modules/ConfigHash');
-const { WEAPONS: WEAPONS_CONFIG } = require('./src/config/GameConfig');
 
 process.on('uncaughtException', (err) => {
     console.error('[FATAL][uncaughtException]', err);
@@ -83,10 +82,10 @@ app.get('/health', (req, res) => {
             rateLimiting: true,
             binaryProtocol: true,
             rtpValues: {
-                '1x': '91.5%',
-                '3x': '94.5%',
-                '5x': '97.5%',
-                '8x': '99.5%'
+                '1x': '91%',
+                '3x': '93%',
+                '5x': '94%',
+                '8x': '95%'
             }
         },
         activeSessions: sessionManager.getActiveSessionCount(),
@@ -182,7 +181,7 @@ const playerRooms = {}; // socketId -> roomCode
 
 // M6: Initialize config hash on startup
 const configHashManager = new ConfigHashManager({
-    WEAPONS: WEAPONS_CONFIG,
+    WEAPONS,
     FISH_SPECIES
 });
 
