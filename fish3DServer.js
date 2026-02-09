@@ -394,7 +394,10 @@ io.on('connection', (socket) => {
             roomCode,
             playerId,
             slotIndex: playerData.slotIndex,
-            isHost: false
+            isHost: false,
+            rulesHash: configHashManager.getHash(),
+            rulesVersion: configHashManager.getVersion(),
+            enforcementPhase: ENFORCEMENT_PHASE
         });
         
         // Notify others
@@ -915,7 +918,9 @@ const PORT = Number(process.env.PORT) || 3000;
 let binaryWsServer = null;
 try {
     binaryWsServer = new BinaryWebSocketServer(server, gameEngines, rooms, {
-        path: '/ws-game'
+        path: '/ws-game',
+        configHashManager,
+        enforcementPhase: ENFORCEMENT_PHASE
     });
     console.log('[BINARY-WS] Binary WebSocket server initialized on /ws-game');
 } catch (err) {
