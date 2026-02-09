@@ -47,6 +47,10 @@ const {
 const { performServerHandshake } = require('../security/HKDF');
 const BinaryPayloads = require('./payloads/BinaryPayloads');
 const Fish3DGameEngine = require('../../fish3DGameEngine');
+const { sequenceTracker } = require('../modules/SequenceTracker');
+const { validateTimestamp } = require('../modules/LagCompensation');
+const { anomalyDetector, ESCALATION_LEVELS } = require('../modules/AnomalyDetector');
+const { rateLimiter } = require('../security/RateLimiter');
 
 class BinarySession {
     constructor(ws, sessionId) {
@@ -109,6 +113,8 @@ class BinaryWebSocketServer {
         this.rooms = rooms;
         this.sessions = new Map();
         this.playerSessions = new Map();
+        this.configHashManager = options.configHashManager || null;
+        this.enforcementPhase = options.enforcementPhase || 1;
         
         this.wss = new WebSocket.Server({
             server,
@@ -134,6 +140,12 @@ class BinaryWebSocketServer {
         const sessionId = crypto.randomBytes(16).toString('hex');
         const session = new BinarySession(ws, sessionId);
         this.sessions.set(sessionId, session);
+        
+        const clientIP = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+        session.clientIP = clientIP;
+        
+        sequenceTracker.initSession(sessionId);
+        rateLimiter.registerConnection(sessionId, clientIP);
         
         console.log(`[BINARY-WS] New connection: ${sessionId} - awaiting ECDH handshake`);
         
@@ -300,6 +312,17 @@ class BinaryWebSocketServer {
             return;
         }
         
+        const shootCheck = rateLimiter.checkShoot(session.sessionId, session.clientIP);
+        if (!shootCheck.allowed) {
+            if (rateLimiter.shouldBanSession(session.sessionId)) {
+                session.sendError(ErrorCodes.RATE_LIMITED, 'Session banned for excessive rate limit violations.');
+                session.ws.close();
+                return;
+            }
+            session.sendError(ErrorCodes.RATE_LIMITED, shootCheck.reason || 'RATE_LIMITED');
+            return;
+        }
+        
         const room = this.rooms[session.roomCode];
         const engine = this.gameEngines[session.roomCode];
         
@@ -313,11 +336,54 @@ class BinaryWebSocketServer {
             return;
         }
         
+        const targetX = data.targetX || 0;
+        const targetZ = data.targetZ || data.targetY || 0;
+        
+        if (typeof targetX !== 'number' || typeof targetZ !== 'number' ||
+            !isFinite(targetX) || !isFinite(targetZ)) {
+            session.sendError(ErrorCodes.INVALID_PACKET, 'INVALID_COORDINATES');
+            return;
+        }
+        
+        if (anomalyDetector.isInCooldown(session.sessionId)) {
+            session.sendError(ErrorCodes.RATE_LIMITED, 'ANOMALY_COOLDOWN');
+            return;
+        }
+        
+        const seq = data.shotSequenceId;
+        const clientTime = data.timestamp;
+        
+        if (this.enforcementPhase >= 2 && typeof seq !== 'number') {
+            session.sendError(ErrorCodes.INVALID_PACKET, 'SEQ_REQUIRED');
+            return;
+        }
+        if (typeof seq === 'number') {
+            const seqResult = sequenceTracker.validate(session.sessionId, seq);
+            if (!seqResult.valid) {
+                session.sendError(ErrorCodes.INVALID_NONCE, seqResult.reason);
+                return;
+            }
+        }
+        
+        if (this.enforcementPhase >= 3 && typeof clientTime !== 'number') {
+            session.sendError(ErrorCodes.INVALID_PACKET, 'CLIENT_TIME_REQUIRED');
+            return;
+        }
+        if (typeof clientTime === 'number') {
+            const lagResult = validateTimestamp(clientTime);
+            if (!lagResult.valid) {
+                session.sendError(ErrorCodes.INVALID_PACKET, lagResult.reason);
+                return;
+            }
+        }
+        
         const enginePlayer = engine.players.get(session.sessionId);
         if (!enginePlayer) {
             session.sendError(ErrorCodes.INVALID_SESSION, 'Player not in engine');
             return;
         }
+        
+        anomalyDetector.recordShot(session.sessionId, enginePlayer.currentWeapon);
         
         const weaponKey = data.weaponId ? String(data.weaponId) + 'x' : enginePlayer.currentWeapon;
         const weapon = engine.WEAPONS ? engine.WEAPONS[weaponKey] : { cost: 1, damage: 1, multiplier: 1 };
@@ -337,9 +403,6 @@ class BinaryWebSocketServer {
         enginePlayer.balance -= cost;
         enginePlayer.lastShotTime = Date.now();
         enginePlayer.totalShots++;
-        
-        const targetX = data.targetX || 0;
-        const targetZ = data.targetZ || data.targetY || 0;
         
         const dx = targetX - enginePlayer.cannonX;
         const dz = targetZ - enginePlayer.cannonZ;
@@ -393,6 +456,26 @@ class BinaryWebSocketServer {
             room.players[session.playerId].balance = enginePlayer.balance;
         }
         
+        const stats = anomalyDetector.getPlayerStats(session.sessionId);
+        if (stats && stats.getTotalShots() % 100 === 0) {
+            const anomalies = anomalyDetector.checkAnomaly(session.sessionId);
+            if (anomalies) {
+                const level = anomalyDetector.getEscalationLevel(session.sessionId);
+                console.warn(`[BINARY-WS][ANTI-CHEAT] Anomaly for ${session.sessionId}: level=${level} flags=${anomalies.length}`, JSON.stringify(anomalies));
+                
+                if (level >= ESCALATION_LEVELS.DISCONNECT) {
+                    session.sendError(ErrorCodes.RATE_LIMITED, 'Disconnected: persistent anomaly detected');
+                    session.ws.close();
+                    return;
+                } else if (level >= ESCALATION_LEVELS.COOLDOWN) {
+                    anomalyDetector.applyCooldown(session.sessionId);
+                    session.sendError(ErrorCodes.RATE_LIMITED, 'ANOMALY_COOLDOWN:10000');
+                } else {
+                    session.sendError(ErrorCodes.RATE_LIMITED, 'ANOMALY_WARNING');
+                }
+            }
+        }
+        
         console.log(`[BINARY-WS] Shot fired: room=${session.roomCode} player=${session.playerId} bullet=${bulletId} target=(${targetX.toFixed(1)},${targetZ.toFixed(1)})`);
     }
     
@@ -423,7 +506,8 @@ class BinaryWebSocketServer {
         session.roomCode = roomCode;
         this.playerSessions.set(session.playerId, session);
         
-        const engine = new Fish3DGameEngine(roomCode);
+        const engineOpts = this.configHashManager ? { configHashManager: this.configHashManager } : {};
+        const engine = new Fish3DGameEngine(roomCode, engineOpts);
         this.gameEngines[roomCode] = engine;
         
         engine.addPlayer(session.sessionId, session.playerId, data.playerName || 'Player');
@@ -652,6 +736,9 @@ class BinaryWebSocketServer {
     
     handleClose(session) {
         console.log(`[BINARY-WS] Connection closed: ${session.sessionId}`);
+        rateLimiter.unregisterConnection(session.sessionId, session.clientIP);
+        sequenceTracker.destroySession(session.sessionId);
+        anomalyDetector.destroyPlayer(session.sessionId);
         this.removePlayerFromRoom(session);
         this.sessions.delete(session.sessionId);
         if (session.playerId) {
