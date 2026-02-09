@@ -1,6 +1,6 @@
 # SPINE-INDEX — Master Decision Registry
 
-STATUS: ACTIVE | v2.0 | 2026-02-09
+STATUS: ACTIVE | v3.0 | 2026-02-09
 SOURCE: 3D Fish Shooting Game Development Bible v4.2 (Modules M1-M6)
 
 ## DECISIONS
@@ -98,14 +98,37 @@ SOURCE: 3D Fish Shooting Game Development Bible v4.2 (Modules M1-M6)
 5. M5: Client verifier UI
 6. M6: Version enforcement
 
+## SPECIFICATIONS
+
+| ID | TYPE | STATUS | TIER | DESCRIPTION |
+|----|------|--------|------|-------------|
+| SPEC-TIER-SYSTEM | SPEC | APPROVED | 1 | 4-Tier document classification system |
+| SPEC-UI-SKIN | SPEC | APPROVED | 3 | UI Skin System (colors, typography, badges) |
+| SPEC-VOICE-FIRST | SPEC | APPROVED | 3 | Voice-First Interface guide for AI navigation |
+| SPEC-ART-STYLE | SPEC | APPROVED | 3 | Art Style Formatting Standard (10 Writing Laws) |
+
+## TEMPLATES
+
+| ID | TYPE | STATUS | TIER | DESCRIPTION |
+|----|------|--------|------|-------------|
+| SESSION-LOG | TEMPLATE | APPROVED | 3 | Session log template for development sessions |
+| RISK-REGISTER | TEMPLATE | APPROVED | 3 | Risk register template for threat tracking |
+
 ## FILE INDEX
 
-| Path | Type | Description |
-|------|------|-------------|
-| /docs/ai/AI-ENTRY.md | ENTRY | Mandatory AI starting point |
-| /docs/ai/AI-DECISION-MATRIX.md | MATRIX | Binary decision logic (A-G) |
-| /docs/spine/SPINE-INDEX.md | INDEX | This file |
-| /docs/decisions/DEC-*.md | DECISION | 20 decision documents (all RESOLVED) |
-| /docs/policies/POL-*.md | POLICY | 9 policy documents (all RESOLVED) |
-| /docs/redlines/RL-*.md | RED_LINE | 14 red line documents (all RESOLVED) |
-| /docs/gates/TEST-GATES.md | GATES | Test gates for M1-M6 |
+| Path | Type | Tier | Description |
+|------|------|------|-------------|
+| /docs/ai/AI-ENTRY.md | ENTRY | 3 | Mandatory AI starting point |
+| /docs/ai/AI-DECISION-MATRIX.md | MATRIX | 2 | Binary decision logic (A-G) |
+| /docs/spine/SPINE-INDEX.md | INDEX | 3 | This file |
+| /docs/decisions/DEC-*.md | DECISION | 2 | 20 decision documents (all RESOLVED) |
+| /docs/policies/POL-*.md | POLICY | 1 | 9 policy documents (all RESOLVED) |
+| /docs/redlines/RL-*.md | RED_LINE | 1 | 14 red line documents (all RESOLVED) |
+| /docs/gates/TEST-GATES.md | GATES | 2 | Test gates for M1-M6 |
+| /docs/specs/SPEC-TIER-SYSTEM.md | SPEC | 1 | 4-Tier document classification |
+| /docs/specs/SPEC-UI-SKIN.md | SPEC | 3 | UI Skin System specification |
+| /docs/specs/SPEC-VOICE-FIRST.md | SPEC | 3 | Voice-First Interface guide |
+| /docs/specs/SPEC-ART-STYLE.md | SPEC | 3 | Art Style Formatting Standard |
+| /docs/templates/SESSION-LOG.md | TEMPLATE | 3 | Session log template |
+| /docs/templates/RISK-REGISTER.md | TEMPLATE | 3 | Risk register template |
+| /docs/archive/ | ARCHIVE | 4 | Archived/deprecated documents |

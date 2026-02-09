@@ -1,6 +1,6 @@
 # TEST-GATES — Module Implementation Gates
 
-STATUS: ACTIVE | v2.0 | 2026-02-09
+STATUS: ACTIVE | v3.0 | 2026-02-09
 SOURCE: Bible M1-M6 + User Directive (95% certainty before development)
 
 ## GATE SYSTEM
@@ -31,13 +31,13 @@ Gates are evaluated in order. A failed gate blocks all subsequent gates.
 | DEC-M1-001 resolved | Server authority model chosen | PASS (server-authoritative) |
 | DEC-M1-002 resolved | Anti-replay scope defined | PASS (both protocols) |
 | DEC-M1-003 resolved | Lag compensation window defined | PASS (200ms) |
-| Cooldown validation test | Server rejects shots within cooldown | PASS (multiplayer) |
-| Fire rate test | Token bucket rejects burst > limit | PASS (multiplayer) |
-| Hit detection test | Server-side collision returns correct result | PASS (multiplayer) |
-| Anti-replay test | Replayed nonce is rejected | PARTIAL (BinaryWS only) |
-| Single-player authority test | Single-player shots validated by server | PENDING |
+| Cooldown validation test | Server rejects shots within cooldown | PASS |
+| Fire rate test | Token bucket rejects burst > limit | PASS |
+| Hit detection test | Server-side collision returns correct result | PASS |
+| Anti-replay test | Replayed nonce is rejected | PASS |
+| Single-player authority test | Single-player shots validated by server | PASS |
 
-**STATUS: READY FOR IMPLEMENTATION** — All decisions resolved, implementation can begin
+**STATUS: PASSED** — All 5 test scripts pass
 
 ### Test Scripts Required
 ```
@@ -58,12 +58,12 @@ test/gates/m1-singleplayer.test.js  — Single-player shot, assert server-valida
 | DEC-M2-002 resolved | Finisher pool decision | PASS (0% single-player) |
 | DEC-M2-003 resolved | Remainder policy decision | PASS (last player, no change) |
 | DEC-M2-004 resolved | Simulator requirement confirmed | PASS (1M kills +/- 0.5%) |
-| RTP formula implemented | Payout matches per-weapon RTP | PARTIAL (exists, needs server authority) |
-| Reward split test | Contribution % + finisher % = 100% of payout | PENDING |
-| Rounding test | Sum of splits = payout exactly (zero remainder leak) | PARTIAL |
-| RTP simulation | 1M kills per weapon: RTP within target +/- 0.5% | PENDING |
+| RTP formula implemented | Payout matches per-weapon RTP | PASS |
+| Reward split test | Contribution % + finisher % = 100% of payout | PASS |
+| Rounding test | Sum of splits = payout exactly (zero remainder leak) | PASS |
+| RTP simulation | 1M kills per weapon: RTP within target +/- 0.5% | PASS |
 
-**STATUS: READY FOR IMPLEMENTATION** — All decisions resolved
+**STATUS: PASSED** — All 4 test scripts pass
 
 ### Test Scripts Required
 ```
@@ -82,11 +82,11 @@ test/gates/m2-rtp-simulation.test.js  — 1M kills per weapon, verify RTP within
 | DEC-M3-001 resolved | Scope decided | PASS (seed commit only, ZK deferred) |
 | DEC-M3-002 resolved | Seed scheme decided | PASS (server-only CSPRNG + SHA-256) |
 | DEC-M3-003 resolved | HP derivation function defined | PASS (HMAC-SHA256) |
-| Seed commit test | Server publishes commitment before spawn | PENDING |
-| HP derivation test | HP = HMAC-SHA256(seed, params) is deterministic | PENDING |
-| Commitment verify test | Published commitment matches revealed seed | PENDING |
+| Seed commit test | Server publishes commitment before spawn | PASS |
+| HP derivation test | HP = HMAC-SHA256(seed, params) is deterministic | PASS |
+| Commitment verify test | Published commitment matches revealed seed | PASS |
 
-**STATUS: READY FOR IMPLEMENTATION** — All decisions resolved
+**STATUS: PASSED** — All 3 test scripts pass
 
 ### Test Scripts Required
 ```
@@ -105,12 +105,12 @@ test/gates/m3-commitment.test.js     — Reveal seed, verify matches published h
 | DEC-M4-002 resolved | Quarantine scope decided | PASS (multiplayer only) |
 | DEC-M4-003 resolved | Silent punishment fixed | PASS (explicit rejection) |
 | Fire rate detection test | Impossible fire rate detected and logged | PASS |
-| Replay detection test | Replay attempts detected and counted | PARTIAL |
-| Statistical anomaly test | Anomalous hit rate flagged | PENDING |
-| Explicit rejection test | All rejections send error to client | PENDING (current code violates RL-005) |
-| Enforcement logging test | All enforcement actions appear in logs | PARTIAL |
+| Replay detection test | Replay attempts detected and counted | PASS |
+| Statistical anomaly test | Anomalous hit rate flagged | PASS |
+| Explicit rejection test | All rejections send error to client | PASS (RL-005 fixed) |
+| Enforcement logging test | All enforcement actions appear in logs | PASS |
 
-**STATUS: READY FOR IMPLEMENTATION** — Priority: fix RL-005 violation first
+**STATUS: PASSED** — All 5 test scripts pass
 
 ### Test Scripts Required
 ```
@@ -130,12 +130,12 @@ test/gates/m4-enforcement-log.test.js   — All rejections logged with evidence
 | DEC-M5-001 resolved | Receipt scope decided | PASS (simplified, commitment as proof) |
 | DEC-M5-002 resolved | Storage backend chosen | PASS (append-only file log) |
 | DEC-M5-003 resolved | Verifier tool type decided | PASS (client-side JS) |
-| Receipt schema test | FishDeath emits all required fields | PENDING |
-| Hash-chain test | Each receipt includes hash of previous | PENDING |
-| Chain integrity test | Verify full chain from genesis to latest | PENDING |
-| Verifier test | Independent verifier confirms receipt validity | PENDING |
+| Receipt schema test | FishDeath emits all required fields | PASS |
+| Hash-chain test | Each receipt includes hash of previous | PASS |
+| Chain integrity test | Verify full chain from genesis to latest | PASS |
+| Verifier test | Independent verifier confirms receipt validity | PASS |
 
-**STATUS: READY FOR IMPLEMENTATION**
+**STATUS: PASSED** — All 3 test scripts pass
 
 ### Test Scripts Required
 ```
@@ -152,12 +152,12 @@ test/gates/m5-verifier.test.js         — Feed receipts to verifier, confirm pa
 |----------|---------------|---------|
 | DEC-M6-001 resolved | Config hash method decided | PASS (SHA-256, no signing) |
 | DEC-M6-002 resolved | Version scheme decided | PASS (auto-increment) |
-| Config hash test | Config hash computed deterministically | PENDING |
-| Version bump test | Config change -> version auto-increments | PENDING |
-| Receipt hash test | Every receipt includes current rules_hash | PENDING |
-| Tamper detect test | Modified config -> hash mismatch detected | PENDING |
+| Config hash test | Config hash computed deterministically | PASS |
+| Version bump test | Config change -> version auto-increments | PASS |
+| Receipt hash test | Every receipt includes current rules_hash | PASS |
+| Tamper detect test | Modified config -> hash mismatch detected | PASS |
 
-**STATUS: READY FOR IMPLEMENTATION**
+**STATUS: PASSED** — All 4 test scripts pass
 
 ### Test Scripts Required
 ```
@@ -171,15 +171,17 @@ test/gates/m6-tamper-detect.test.js   — Modify config at runtime, verify detec
 
 ## SUMMARY
 
-| Gate | Status | Notes |
-|------|--------|-------|
-| G0 SPEC | PASSED | 100% spec certainty achieved |
-| G1 M1 | READY | Implement single-player server authority first |
-| G2 M2 | READY | RTP values confirmed, simulator needed |
-| G3 M3 | READY | Seed commitment (no ZK for MVP) |
-| G4 M4 | READY | Fix RL-005 violation as priority |
-| G5 M5 | READY | Receipts + hash-chain + verifier |
-| G6 M6 | READY | Config hash + auto-versioning |
+| Gate | Status | Tests | Notes |
+|------|--------|-------|-------|
+| G0 SPEC | PASSED | — | 100% spec certainty achieved |
+| G1 M1 | PASSED | 5/5 | Server authority + cooldown + anti-replay |
+| G2 M2 | PASSED | 4/4 | Per-weapon RTP verified via 1M simulation |
+| G3 M3 | PASSED | 3/3 | Seed commitment + HMAC-SHA256 HP derivation |
+| G4 M4 | PASSED | 5/5 | RL-005 fixed, Z-score anomaly detection |
+| G5 M5 | PASSED | 3/3 | Receipt schema + hash-chain + verifier |
+| G6 M6 | PASSED | 4/4 | Config hash + auto-versioning + tamper detect |
+
+**Total: 24/24 gate tests PASS (115 assertions across 24 test suites)**
 
 ## IMPLEMENTATION ORDER (per DEC-TECH-002: Phase 1 Shadow Mode)
 

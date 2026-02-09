@@ -5,8 +5,8 @@ const path = require('path');
 const VERSION_FILE = path.join(process.env.DATA_DIR || path.join(__dirname, '../../data'), 'config-versions.jsonl');
 
 function computeConfigHash(configObj) {
-    const sorted = JSON.stringify(configObj, Object.keys(configObj).sort());
-    return crypto.createHash('sha256').update(sorted).digest('hex');
+    const json = JSON.stringify(configObj);
+    return crypto.createHash('sha256').update(json).digest('hex');
 }
 
 function sortObjectDeep(obj) {
@@ -94,6 +94,16 @@ class ConfigHashManager {
 
     getVersion() {
         return this.version;
+    }
+
+    updateConfig(newConfig) {
+        const sorted = sortObjectDeep(newConfig);
+        const newHash = computeConfigHash(sorted);
+        if (newHash !== this.configHash) {
+            this.configHash = newHash;
+            this.version++;
+            this.appendVersion();
+        }
     }
 
     getInfo() {
