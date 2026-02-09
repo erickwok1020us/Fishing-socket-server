@@ -1,5 +1,3 @@
-const crypto = require('crypto');
-
 class SequenceTracker {
     constructor() {
         this.sessions = new Map();

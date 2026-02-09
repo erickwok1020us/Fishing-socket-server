@@ -14,7 +14,7 @@
  * - Server-authoritative game state
  * - CSPRNG for all random outcomes
  * - Session management with nonce tracking
- * - RTP values: 1x=91.5%, 3x=94.5%, 5x=97.5%, 8x=99.5%
+ * - RTP values: 1x=91%, 3x=93%, 5x=94%, 8x=95%
  */
 
 const express = require('express');
@@ -455,6 +455,15 @@ io.on('connection', (socket) => {
         
         if (!roomCode || !gameEngines[roomCode]) return;
         
+        if (typeof targetX !== 'number' || typeof targetZ !== 'number' ||
+            !isFinite(targetX) || !isFinite(targetZ)) {
+            socket.emit('shootRejected', {
+                reason: 'INVALID_COORDINATES',
+                timestamp: Date.now()
+            });
+            return;
+        }
+        
         // M1: Anti-replay sequence validation
         if (typeof seq === 'number') {
             const seqResult = sequenceTracker.validate(socket.id, seq);
@@ -642,6 +651,8 @@ io.on('connection', (socket) => {
     
     // M3: Client requests seed reveal (for fairness verification)
     socket.on('requestSeedReveal', () => {
+        const seedRevealCheck = rateLimiter.checkStateRequest(socket.id);
+        if (!seedRevealCheck.allowed) return;
         const roomCode = playerRooms[socket.id];
         if (!roomCode || !gameEngines[roomCode]) return;
         const reveal = gameEngines[roomCode].revealSeed();
@@ -652,6 +663,8 @@ io.on('connection', (socket) => {
     
     // M5: Client requests receipts for verification
     socket.on('requestReceipts', () => {
+        const receiptsCheck = rateLimiter.checkStateRequest(socket.id);
+        if (!receiptsCheck.allowed) return;
         const roomCode = playerRooms[socket.id];
         if (!roomCode || !gameEngines[roomCode]) return;
         const receipts = gameEngines[roomCode].getReceipts();
