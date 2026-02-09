@@ -1,6 +1,6 @@
 # TEST-GATES — Module Implementation Gates
 
-STATUS: ACTIVE | v3.0 | 2026-02-09
+STATUS: ACTIVE | v4.0 | 2026-02-09
 SOURCE: Bible M1-M6 + User Directive (95% certainty before development)
 
 ## GATE SYSTEM
@@ -20,7 +20,7 @@ Gates are evaluated in order. A failed gate blocks all subsequent gates.
 | Tech stack decided | DEC-TECH-001 = RESOLVED | PASS (Option A: Render backend) |
 | Integration phase decided | DEC-TECH-002 = RESOLVED | PASS (Shadow -> Soft -> Full) |
 
-**STATUS: PASSED** — Development may proceed to Phase 1 (Shadow Mode)
+**STATUS: PASSED** — Development may proceed. Currently at Phase 3 (Full Enforcement)
 
 ---
 
@@ -109,8 +109,11 @@ test/gates/m3-commitment.test.js     — Reveal seed, verify matches published h
 | Statistical anomaly test | Anomalous hit rate flagged | PASS |
 | Explicit rejection test | All rejections send error to client | PASS (RL-005 fixed) |
 | Enforcement logging test | All enforcement actions appear in logs | PASS |
+| Escalation WARNING | 1 flag -> WARNING level | PASS |
+| Escalation COOLDOWN | 3 flags -> COOLDOWN level + 10s block | PASS |
+| Escalation DISCONNECT | 5 flags -> DISCONNECT level | PASS |
 
-**STATUS: PASSED** — All 5 test scripts pass
+**STATUS: PASSED** — All 6 test scripts pass (Phase 3 escalation verified)
 
 ### Test Scripts Required
 ```
@@ -119,6 +122,7 @@ test/gates/m4-replay-detect.test.js     — Replayed nonce -> detected
 test/gates/m4-anomaly-detect.test.js    — Abnormal hit rate -> flagged
 test/gates/m4-explicit-reject.test.js   — Rate-limited shot -> error event sent to client
 test/gates/m4-enforcement-log.test.js   — All rejections logged with evidence
+test/gates/m4-escalation.test.js        — Escalation: WARNING -> COOLDOWN -> DISCONNECT
 ```
 
 ---
@@ -156,15 +160,18 @@ test/gates/m5-verifier.test.js         — Feed receipts to verifier, confirm pa
 | Version bump test | Config change -> version auto-increments | PASS |
 | Receipt hash test | Every receipt includes current rules_hash | PASS |
 | Tamper detect test | Modified config -> hash mismatch detected | PASS |
+| Version enforcement test | Config change bumps version, same config does not | PASS |
+| Version info test | getInfo returns hash, version, historyLength | PASS |
 
-**STATUS: PASSED** — All 4 test scripts pass
+**STATUS: PASSED** — All 5 test scripts pass (Phase 3 version enforcement verified)
 
 ### Test Scripts Required
 ```
-test/gates/m6-config-hash.test.js     — Same config = same hash (deterministic)
-test/gates/m6-version-bump.test.js    — Change config, verify version increments
-test/gates/m6-receipt-hash.test.js    — Kill fish, verify receipt contains rules_hash
-test/gates/m6-tamper-detect.test.js   — Modify config at runtime, verify detection
+test/gates/m6-config-hash.test.js      — Same config = same hash (deterministic)
+test/gates/m6-version-bump.test.js     — Change config, verify version increments
+test/gates/m6-receipt-hash.test.js     — Kill fish, verify receipt contains rules_hash
+test/gates/m6-tamper-detect.test.js    — Modify config at runtime, verify detection
+test/gates/m6-version-enforce.test.js  — Version enforcement: bump on change, stable on same
 ```
 
 ---
@@ -177,17 +184,37 @@ test/gates/m6-tamper-detect.test.js   — Modify config at runtime, verify detec
 | G1 M1 | PASSED | 5/5 | Server authority + cooldown + anti-replay |
 | G2 M2 | PASSED | 4/4 | Per-weapon RTP verified via 1M simulation |
 | G3 M3 | PASSED | 3/3 | Seed commitment + HMAC-SHA256 HP derivation |
-| G4 M4 | PASSED | 5/5 | RL-005 fixed, Z-score anomaly detection |
+| G4 M4 | PASSED | 6/6 | RL-005 fixed, Z-score + escalation system |
 | G5 M5 | PASSED | 3/3 | Receipt schema + hash-chain + verifier |
-| G6 M6 | PASSED | 4/4 | Config hash + auto-versioning + tamper detect |
+| G6 M6 | PASSED | 5/5 | Config hash + versioning + tamper + enforcement |
 
-**Total: 24/24 gate tests PASS (115 assertions across 24 test suites)**
+**Total: 26/26 gate tests PASS (128 assertions across 26 test suites)**
 
-## IMPLEMENTATION ORDER (per DEC-TECH-002: Phase 1 Shadow Mode)
+## RTP SIMULATION
+
+```
+test/rtp-simulation.js — 1M kills per weapon, verify RTP within ±0.5%
+
+Results (4,000,000 total kills):
+  1x: expected=91.0% observed=91.077% deviation=0.077% — PASS
+  3x: expected=93.0% observed=93.136% deviation=0.136% — PASS
+  5x: expected=94.0% observed=94.081% deviation=0.081% — PASS
+  8x: expected=95.0% observed=94.912% deviation=0.088% — PASS
+```
+
+## ENFORCEMENT PHASES
+
+| Phase | Status | Key Behaviors |
+|-------|--------|---------------|
+| Phase 1: Shadow Mode | COMPLETED | Modules compute but don't enforce |
+| Phase 2: Soft Enforcement | COMPLETED | seq mandatory, explicit rejections, receipts active |
+| Phase 3: Full Enforcement | ACTIVE | clientTime mandatory, escalation (warn→cooldown→disconnect), version enforcement |
+
+## IMPLEMENTATION ORDER (per DEC-TECH-002)
 
 1. **M1** — Server authority for single-player (1-player room via Socket.IO)
-2. **M4** — Fix RL-005 violation (explicit rejection, highest priority bug)
-3. **M6** — Config hash computation (needed by M5)
-4. **M3** — Seed commitment scheme (needed by M5)
+2. **M4** — Fix RL-005 violation + escalation system
+3. **M6** — Config hash + version enforcement
+4. **M3** — Seed commitment + auto-rotation on reveal
 5. **M2** — Per-weapon RTP enforcement server-side
-6. **M5** — Receipt generation + hash-chain
+6. **M5** — Receipt generation + hash-chain + verifier UI
