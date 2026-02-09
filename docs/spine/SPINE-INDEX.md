@@ -1,6 +1,6 @@
 # SPINE-INDEX — Master Decision Registry
 
-STATUS: ACTIVE | v3.0 | 2026-02-09
+STATUS: ACTIVE | v4.0 | 2026-02-09
 SOURCE: 3D Fish Shooting Game Development Bible v4.2 (Modules M1-M6)
 
 ## DECISIONS
@@ -113,6 +113,8 @@ SOURCE: 3D Fish Shooting Game Development Bible v4.2 (Modules M1-M6)
 |----|------|--------|------|-------------|
 | SESSION-LOG | TEMPLATE | APPROVED | 3 | Session log template for development sessions |
 | RISK-REGISTER | TEMPLATE | APPROVED | 3 | Risk register template for threat tracking |
+| PROJECT-GENESIS | TEMPLATE | APPROVED | 3 | New project startup template |
+| DECISION-RECORD | TEMPLATE | APPROVED | 3 | Decision record template (copy for new DEC-XXX) |
 
 ## FILE INDEX
 
@@ -131,4 +133,9 @@ SOURCE: 3D Fish Shooting Game Development Bible v4.2 (Modules M1-M6)
 | /docs/specs/SPEC-ART-STYLE.md | SPEC | 3 | Art Style Formatting Standard |
 | /docs/templates/SESSION-LOG.md | TEMPLATE | 3 | Session log template |
 | /docs/templates/RISK-REGISTER.md | TEMPLATE | 3 | Risk register template |
+| /docs/templates/PROJECT-GENESIS.md | TEMPLATE | 3 | New project startup template |
+| /docs/templates/DECISION-RECORD.md | TEMPLATE | 3 | Decision record template |
+| /docs/dashboard/BUILD-DASHBOARD.md | DASHBOARD | 3 | Live build status and metrics |
+| /docs/guides/CRASH-RECOVERY.md | GUIDE | 3 | Recovery guide when lost |
+| /docs/policies/ANTI-DILUTION-LAWS.md | POLICY | 1 | Documentation + process red lines |
 | /docs/archive/ | ARCHIVE | 4 | Archived/deprecated documents |
