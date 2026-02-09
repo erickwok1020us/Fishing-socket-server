@@ -176,12 +176,25 @@ function deserializePacket(buffer, encryptionKey, hmacKey, lastNonce = 0) {
     
     validateNonce(header.nonce, lastNonce);
     
-    const decoder = getBinaryDecoder(header.packetId);
     let payload;
-    try {
-        payload = decoder(decrypted);
-    } catch (err) {
-        throw new DeserializationError(ErrorCodes.INVALID_PACKET, 'Invalid binary payload: ' + err.message);
+    if (header.packetId === PacketId.ROOM_STATE && decrypted.length > 0 && decrypted[0] === 0x7B) {
+        try {
+            payload = JSON.parse(decrypted.toString('utf8'));
+        } catch (_) {
+            const decoder = getBinaryDecoder(header.packetId);
+            try {
+                payload = decoder(decrypted);
+            } catch (err) {
+                throw new DeserializationError(ErrorCodes.INVALID_PACKET, 'Invalid binary payload: ' + err.message);
+            }
+        }
+    } else {
+        const decoder = getBinaryDecoder(header.packetId);
+        try {
+            payload = decoder(decrypted);
+        } catch (err) {
+            throw new DeserializationError(ErrorCodes.INVALID_PACKET, 'Invalid binary payload: ' + err.message);
+        }
     }
     
     return {
