@@ -1,42 +1,54 @@
 # DEC-TECH-002: Integration Phasing Strategy
 
 TYPE: DECISION
-STATUS: UNRESOLVED
+STATUS: RESOLVED
 SCOPE: GLOBAL
 MODULE: CROSS-MODULE
-AI_ACTION_ALLOWED: 0
+AI_ACTION_ALLOWED: 1
 
-## QUESTION
+## RESOLUTION
 
-Follow the Bible's 3-phase integration strategy (Shadow -> Soft -> Full) or implement all at once?
+**Option A: Follow Bible phases exactly (Shadow -> Soft -> Full Enforcement)**
 
-## CONTEXT
+Implementation follows the Bible's 3-phase integration strategy for lowest risk.
 
-- Bible specifies phased rollout:
-  - Phase 1 Shadow Mode: Modules compute but don't enforce, compare with live
-  - Phase 2 Soft Enforcement: Enforce authority + cooldown, log receipts, ZK in background
-  - Phase 3 Full Enforcement: Contribution rewards / receipts / proof verification all active
-- Current state: Most modules at 0-40% implementation
-- Single-player focus means lower risk for phased approach
+RESOLVED BY: Technical analysis — phased rollout is safest for complex system with 6 interdependent modules
 
-## OPTIONS
+## RATIONALE
 
-| Option | Description | Risk | Timeline |
-|--------|-------------|------|----------|
-| A | Follow Bible phases exactly (Shadow -> Soft -> Full) | Lowest | Longest |
-| B | Skip Shadow, go Soft -> Full (modules already partially exist) | Medium | Medium |
-| C | Implement all at once (Full Enforcement from start) | Highest | Shortest if no bugs |
+- Bible explicitly defines this strategy — following it maintains spec compliance
+- Shadow Mode allows validation without affecting players
+- Soft Enforcement catches issues before full lockdown
+- Phased approach reduces blast radius of bugs
+- Each phase has clear entry/exit criteria
 
-## DEPENDENCIES
+## PHASE DEFINITIONS
 
-- Requires: DEC-M1-001, DEC-TECH-001
-- Affects: All M1-M6 implementation order and testing strategy
+### Phase 1: Shadow Mode
+- All M1-M6 modules compute results but do NOT enforce
+- Compare shadow results with live game outcomes
+- Log discrepancies for analysis
+- Player experience unchanged
+- Duration: until discrepancy rate < 0.1%
 
-## ALLOWED ACTIONS
+### Phase 2: Soft Enforcement
+- M1 authority + cooldown enforced
+- M2 RTP applied to rewards
+- M4 anti-cheat active (explicit rejections)
+- M5 receipts logged (not yet shown to players)
+- M3 seed commitment active (not yet verified by client)
+- M6 config hash computed
+- Duration: until 1M kills pass RTP validation
 
-NONE. Decision must be resolved before implementation planning.
+### Phase 3: Full Enforcement
+- All modules fully active and enforced
+- Client-side receipt verification enabled
+- Seed commitment + reveal active
+- UI shows fairness receipts
+- Config immutability enforced
 
-## FORBIDDEN ACTIONS
+## IMPLEMENTATION NOTES
 
-- Do not begin any module implementation
-- Do not skip phases without explicit decision
+- Phase flags in server config: { phase: 1|2|3 }
+- Phase transition requires manual approval (no auto-promotion)
+- Each phase transition is a new config version (DEC-M6-002)

@@ -1,62 +1,45 @@
 # DEC-TECH-001: Single-Player Tech Stack
 
 TYPE: DECISION
-STATUS: UNRESOLVED
+STATUS: RESOLVED
 SCOPE: GLOBAL
 MODULE: CROSS-MODULE
-AI_ACTION_ALLOWED: 0
+AI_ACTION_ALLOWED: 1
 
-## QUESTION
+## RESOLUTION
 
-What tech stack should single-player mode use to achieve server-grade security without mandatory network?
+**Option A: Connect to Render backend via WebSocket (same as multiplayer)**
 
-## CONTEXT
+Single-player mode connects to the existing Render-hosted Node.js backend via Socket.IO. Single-player = multiplayer room with 1 player.
 
-- Current: Single-player runs entirely in browser (game.js), no server involvement
-- Multiplayer: Uses Socket.IO to Node.js backend on Render
-- Bible requires server authority for ALL game modes (M1)
-- User priority: single-player first, multiplayer later
-- Deployed frontend: Vercel (static hosting)
-- Deployed backend: Render (Node.js)
+RESOLVED BY: User directive (DEC-M1-001 = server authority) + technical analysis
 
-## OPTIONS
+## RATIONALE
 
-| Option | Stack | Latency | Offline | Security | Complexity |
-|--------|-------|---------|---------|----------|------------|
-| A | Connect to Render backend via WebSocket (same as multiplayer) | 50-200ms | No | High (true server authority) | Low (reuse existing) |
-| B | WebWorker running game engine in browser thread | <1ms | Yes | Medium (client can inspect) | Medium |
-| C | WASM-compiled game engine in browser | <1ms | Yes | Medium (harder to tamper) | High |
-| D | Local Node.js server (Electron/Tauri wrapper) | <5ms | Yes | High (separate process) | High |
-| E | Hybrid: Option A with Option B fallback for offline | Variable | Partial | High online, Medium offline | High |
+- Reuses 100% of existing multiplayer server code — lowest implementation effort
+- True server authority — client cannot tamper with any game logic
+- Same security model, same codebase, same deployment for all modes
+- No new infrastructure (WebWorker, WASM, Electron) needed
+- Consistent behavior: single-player and multiplayer share identical game engine
 
-## TRADE-OFF ANALYSIS
+## TRADE-OFFS ACCEPTED
 
-### Option A (Recommended for casino compliance)
-- Reuses 100% of existing multiplayer server code
-- True server authority — client cannot tamper
-- Requires internet connection
-- Latency depends on user location to Render server
-- Simplest implementation (single-player = multiplayer room with 1 player)
+- Requires internet connection (no offline single-player)
+- Latency: 50-200ms to Render server (acceptable per DEC-M1-003)
+- Server downtime = no game (mitigated by Render's uptime SLA)
+- No local/offline fallback for MVP
 
-### Option B (Best for offline single-player)
-- Game engine runs in WebWorker (separate thread)
-- Same JS code as server, but in browser
-- Technically inspectable by determined attackers
-- No network dependency
-- Moderate refactoring needed
+## IMPLEMENTATION NOTES
 
-## DEPENDENCIES
+- Client: connect to wss://fishing-socket-server.onrender.com
+- Server: create room with maxPlayers=1 for single-player
+- Room type flag: { mode: 'singleplayer' } to adjust finisher pool (DEC-M2-002)
+- All existing server-side validation applies automatically
+- Client game.js: remove local hit detection, reward calculation, Math.random() for single-player
+- Client sends: shoot events with target position
+- Server returns: hit/miss result, reward, fish state updates
 
-- Requires: DEC-M1-001 resolved first
-- Blocks: All M1-M6 single-player implementation
-- Affects: Frontend architecture, deployment model
+## DEPENDENCIES UNBLOCKED
 
-## ALLOWED ACTIONS
-
-NONE. Decision must be resolved before any tech stack changes.
-
-## FORBIDDEN ACTIONS
-
-- Do not refactor game architecture
-- Do not add WebWorker infrastructure
-- Do not modify deployment configuration
+- All M1-M6 single-player implementation
+- Frontend architecture changes

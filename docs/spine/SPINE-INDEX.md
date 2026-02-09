@@ -1,38 +1,38 @@
 # SPINE-INDEX — Master Decision Registry
 
-STATUS: ACTIVE | v1.0 | 2026-02-09
+STATUS: ACTIVE | v2.0 | 2026-02-09
 SOURCE: 3D Fish Shooting Game Development Bible v4.2 (Modules M1-M6)
 
 ## DECISIONS
 
-| ID | TYPE | STATUS | SCOPE | DESCRIPTION |
-|----|------|--------|-------|-------------|
-| DEC-M1-001 | DECISION | UNRESOLVED | GLOBAL | Single-player mode: require server authority or allow client-side? |
-| DEC-M1-002 | DECISION | UNRESOLVED | LOCAL | Anti-replay mechanism: use HMAC+nonce for Socket.IO or only BinaryWebSocket? |
-| DEC-M1-003 | DECISION | UNRESOLVED | LOCAL | Bounded lag compensation: max acceptable latency window (ms)? |
-| DEC-M2-001 | DECISION | UNRESOLVED | GLOBAL | RTP target: Bible says 99% perfect-hit, code uses 91-95% per weapon. Which is correct? |
-| DEC-M2-002 | DECISION | UNRESOLVED | LOCAL | Finisher pool: implement 2-10% finisher bonus or 100% contribution-based? |
-| DEC-M2-003 | DECISION | UNRESOLVED | LOCAL | Reward rounding: which remainder policy (last-player, round-robin, house)? |
-| DEC-M2-004 | DECISION | UNRESOLVED | GLOBAL | RTP simulator: 1M kill simulation required before launch? |
-| DEC-M3-001 | DECISION | UNRESOLVED | GLOBAL | ZK HP proofs: implement for MVP or defer to post-launch? |
-| DEC-M3-002 | DECISION | UNRESOLVED | LOCAL | Seed commit scheme: server-only seed or player commit-reveal mixed entropy? |
-| DEC-M3-003 | DECISION | UNRESOLVED | LOCAL | HP derivation function: HP = f(seed, fishType, spawnIndex, roomId) formula? |
-| DEC-M4-001 | DECISION | UNRESOLVED | LOCAL | Statistical anomaly detection: which algorithms and thresholds? |
-| DEC-M4-002 | DECISION | UNRESOLVED | LOCAL | Quarantine rooms: implement for single-player or multiplayer only? |
-| DEC-M4-003 | DECISION | UNRESOLVED | LOCAL | Silent punishment policy: current code silently drops shots — change to explicit rejection? |
-| DEC-M5-001 | DECISION | UNRESOLVED | GLOBAL | Audit receipts: implement FishDeath receipt schema for single-player? |
-| DEC-M5-002 | DECISION | UNRESOLVED | LOCAL | Hash-chain receipts: storage backend (in-memory, SQLite, external DB)? |
-| DEC-M5-003 | DECISION | UNRESOLVED | LOCAL | Verifier tool: client-side JS or separate service? |
-| DEC-M6-001 | DECISION | UNRESOLVED | GLOBAL | Signed config: implement config signing for MVP? |
-| DEC-M6-002 | DECISION | UNRESOLVED | LOCAL | Rules hash versioning: auto-increment or manual version bumps? |
-| DEC-TECH-001 | DECISION | UNRESOLVED | GLOBAL | Single-player tech stack: local Node.js server, WebWorker, or embedded WASM? |
-| DEC-TECH-002 | DECISION | UNRESOLVED | GLOBAL | Integration strategy: Shadow Mode -> Soft Enforcement -> Full Enforcement phasing? |
+| ID | TYPE | STATUS | SCOPE | RESOLUTION SUMMARY |
+|----|------|--------|-------|--------------------|
+| DEC-M1-001 | DECISION | RESOLVED | GLOBAL | Server authority for single-player: YES (connect to backend via Socket.IO) |
+| DEC-M1-002 | DECISION | RESOLVED | LOCAL | Anti-replay on BOTH Socket.IO and BinaryWebSocket |
+| DEC-M1-003 | DECISION | RESOLVED | LOCAL | Lag compensation: 200ms maximum window |
+| DEC-M2-001 | DECISION | RESOLVED | GLOBAL | Keep per-weapon RTP: 1x=91%, 3x=93%, 5x=94%, 8x=95% (overrides Bible 99%) |
+| DEC-M2-002 | DECISION | RESOLVED | LOCAL | Finisher pool: 0% single-player, configurable 2-10% multiplayer |
+| DEC-M2-003 | DECISION | RESOLVED | LOCAL | Remainder: last player gets it (current implementation, no change) |
+| DEC-M2-004 | DECISION | RESOLVED | GLOBAL | RTP simulator: 1M kills per weapon, target +/- 0.5% |
+| DEC-M3-001 | DECISION | RESOLVED | GLOBAL | Seed commitment only for MVP, full ZK deferred to post-launch |
+| DEC-M3-002 | DECISION | RESOLVED | LOCAL | Server-only CSPRNG seed with SHA-256 commitment |
+| DEC-M3-003 | DECISION | RESOLVED | LOCAL | HP = HMAC-SHA256(seed, fishType+spawnIndex+roomId) mod hpRange |
+| DEC-M4-001 | DECISION | RESOLVED | LOCAL | Z-score on hit rate (flag if > 3 sigma) |
+| DEC-M4-002 | DECISION | RESOLVED | LOCAL | Quarantine: skip for single-player, defer to multiplayer |
+| DEC-M4-003 | DECISION | RESOLVED | LOCAL | Explicit rejection with error event (fixes RL-005 violation) |
+| DEC-M5-001 | DECISION | RESOLVED | GLOBAL | Simplified receipts for single-player (commitment hash as proof_reference) |
+| DEC-M5-002 | DECISION | RESOLVED | LOCAL | Append-only JSON-lines file log |
+| DEC-M5-003 | DECISION | RESOLVED | LOCAL | Client-side JS verifier in browser |
+| DEC-M6-001 | DECISION | RESOLVED | GLOBAL | SHA-256 hash of config (no signing for MVP) |
+| DEC-M6-002 | DECISION | RESOLVED | LOCAL | Auto-increment version on hash change |
+| DEC-TECH-001 | DECISION | RESOLVED | GLOBAL | Connect to Render backend (single-player = 1-player room) |
+| DEC-TECH-002 | DECISION | RESOLVED | GLOBAL | Shadow -> Soft -> Full Enforcement (Bible 3-phase strategy) |
 
 ## POLICIES
 
 | ID | TYPE | STATUS | SCOPE | DESCRIPTION |
 |----|------|--------|-------|-------------|
-| POL-RTP-001 | POLICY | RESOLVED | GLOBAL | Perfect-hit RTP = 99% (Bible M2 specification) |
+| POL-RTP-001 | POLICY | RESOLVED | GLOBAL | Per-weapon RTP: 1x=91%, 3x=93%, 5x=94%, 8x=95% (user override of Bible 99%) |
 | POL-AUTH-001 | POLICY | RESOLVED | GLOBAL | Server validates cooldown / fire rate / hit detection (Bible M1) |
 | POL-RNG-001 | POLICY | RESOLVED | GLOBAL | All RNG for game outcomes occurs exclusively on backend using CSPRNG (Bible M1) |
 | POL-FAIR-001 | POLICY | RESOLVED | GLOBAL | Client cannot alter cost / fake hits / shoot faster than allowed (Bible M1) |
@@ -40,7 +40,7 @@ SOURCE: 3D Fish Shooting Game Development Bible v4.2 (Modules M1-M6)
 | POL-AUDIT-001 | POLICY | RESOLVED | GLOBAL | Every FishDeath emits receipt with proof_reference and rules_hash (Bible M5) |
 | POL-IMMUT-001 | POLICY | RESOLVED | GLOBAL | Operator cannot change fairness rules without new version (Bible M6) |
 | POL-PSYCH-001 | POLICY | RESOLVED | GLOBAL | No hidden difficulty scaling, no fake near-miss, no player-specific odds (Bible Psychology) |
-| POL-DIST-001 | POLICY | RESOLVED | GLOBAL | HP range: moderate +-20-35% of mean, center-weighted distribution (Bible Distribution) |
+| POL-DIST-001 | POLICY | RESOLVED | GLOBAL | HP range: moderate +/-20-35% of mean, center-weighted distribution (Bible Distribution) |
 
 ## RED LINES
 
@@ -61,16 +61,42 @@ SOURCE: 3D Fish Shooting Game Development Bible v4.2 (Modules M1-M6)
 | RL-013 | RED_LINE | RESOLVED | GLOBAL | No exploitably low HP outliers |
 | RL-014 | RED_LINE | RESOLVED | GLOBAL | Do not develop until 95% sure of all specs |
 
-## CURRENT IMPLEMENTATION STATUS (Audit 2026-02-09)
+## SPEC CERTAINTY STATUS
 
-| Module | Impl% | Blocking Decisions |
-|--------|-------|--------------------|
-| M1 Network & Authority | ~40% | DEC-M1-001, DEC-M1-002, DEC-M1-003 |
-| M2 Economy & RTP | ~15% | DEC-M2-001, DEC-M2-002, DEC-M2-003, DEC-M2-004 |
-| M3 Crypto Fairness | 0% | DEC-M3-001, DEC-M3-002, DEC-M3-003 |
-| M4 Anti-Cheat | ~30% | DEC-M4-001, DEC-M4-002, DEC-M4-003 |
-| M5 Audit & Receipts | 0% | DEC-M5-001, DEC-M5-002, DEC-M5-003 |
-| M6 Release & Immutability | 0% | DEC-M6-001, DEC-M6-002 |
+| Category | Total | Resolved | Percentage |
+|----------|-------|----------|------------|
+| DECISIONS | 20 | 20 | 100% |
+| POLICIES | 9 | 9 | 100% |
+| RED LINES | 14 | 14 | 100% |
+| **TOTAL** | **43** | **43** | **100%** |
+
+**SPEC CERTAINTY: 100% — ALL DECISIONS RESOLVED. DEVELOPMENT MAY PROCEED.**
+
+## IMPLEMENTATION ROADMAP (per DEC-TECH-002)
+
+### Phase 1: Shadow Mode
+1. M1: Server authority for single-player (1-player room)
+2. M2: Apply per-weapon RTP server-side (shadow comparison)
+3. M3: Seed commitment (publish hash, no verification)
+4. M4: Statistical monitoring (log only, no enforcement)
+5. M5: Generate receipts (log only, no UI)
+6. M6: Compute config hash
+
+### Phase 2: Soft Enforcement
+1. M1: Enforce cooldown, fire rate, hit detection
+2. M2: RTP applied to actual rewards
+3. M3: Seed commitment active
+4. M4: Explicit rejections active
+5. M5: Receipts stored in hash-chain
+6. M6: Config hash in receipts
+
+### Phase 3: Full Enforcement
+1. M1: Full authority with lag compensation
+2. M2: RTP simulator validation passed
+3. M3: Seed reveal + client verification
+4. M4: Anomaly detection + disconnect
+5. M5: Client verifier UI
+6. M6: Version enforcement
 
 ## FILE INDEX
 
@@ -79,32 +105,7 @@ SOURCE: 3D Fish Shooting Game Development Bible v4.2 (Modules M1-M6)
 | /docs/ai/AI-ENTRY.md | ENTRY | Mandatory AI starting point |
 | /docs/ai/AI-DECISION-MATRIX.md | MATRIX | Binary decision logic (A-G) |
 | /docs/spine/SPINE-INDEX.md | INDEX | This file |
-| /docs/decisions/DEC-M1-001.md | DECISION | Server authority for single-player |
-| /docs/decisions/DEC-M2-001.md | DECISION | RTP target value |
-| /docs/decisions/DEC-M3-001.md | DECISION | ZK HP for MVP |
-| /docs/decisions/DEC-TECH-001.md | DECISION | Single-player tech stack |
-| /docs/decisions/DEC-TECH-002.md | DECISION | Integration phasing strategy |
-| /docs/policies/POL-RTP-001.md | POLICY | Perfect-hit RTP = 99% |
-| /docs/policies/POL-AUTH-001.md | POLICY | Server authority mandate |
-| /docs/policies/POL-RNG-001.md | POLICY | CSPRNG-only RNG |
-| /docs/policies/POL-FAIR-001.md | POLICY | Client cannot cheat |
-| /docs/policies/POL-ECON-001.md | POLICY | Reward split rules |
-| /docs/policies/POL-AUDIT-001.md | POLICY | Receipt requirements |
-| /docs/policies/POL-IMMUT-001.md | POLICY | Immutability guarantee |
-| /docs/policies/POL-PSYCH-001.md | POLICY | Psychology red lines |
-| /docs/policies/POL-DIST-001.md | POLICY | HP distribution rules |
-| /docs/redlines/RL-001.md | RED_LINE | No cost alteration |
-| /docs/redlines/RL-002.md | RED_LINE | No fire rate exploit |
-| /docs/redlines/RL-003.md | RED_LINE | No RNG alteration |
-| /docs/redlines/RL-004.md | RED_LINE | No HP alteration |
-| /docs/redlines/RL-005.md | RED_LINE | No silent punishment |
-| /docs/redlines/RL-006.md | RED_LINE | No hidden difficulty |
-| /docs/redlines/RL-007.md | RED_LINE | No fake near-miss |
-| /docs/redlines/RL-008.md | RED_LINE | No player-specific odds |
-| /docs/redlines/RL-009.md | RED_LINE | No operator rigging |
-| /docs/redlines/RL-010.md | RED_LINE | No last-hit stealing |
-| /docs/redlines/RL-011.md | RED_LINE | No profitable client cheat |
-| /docs/redlines/RL-012.md | RED_LINE | No silent tamper |
-| /docs/redlines/RL-013.md | RED_LINE | No exploitable HP outliers |
-| /docs/redlines/RL-014.md | RED_LINE | No dev without 95% spec certainty |
+| /docs/decisions/DEC-*.md | DECISION | 20 decision documents (all RESOLVED) |
+| /docs/policies/POL-*.md | POLICY | 9 policy documents (all RESOLVED) |
+| /docs/redlines/RL-*.md | RED_LINE | 14 red line documents (all RESOLVED) |
 | /docs/gates/TEST-GATES.md | GATES | Test gates for M1-M6 |
