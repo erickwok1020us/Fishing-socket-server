@@ -1,6 +1,18 @@
 const SIGMA_THRESHOLD = 3.0;
 const MIN_SHOTS_FOR_DETECTION = 50;
 
+const ESCALATION_LEVELS = {
+    NONE: 0,
+    WARNING: 1,
+    COOLDOWN: 2,
+    DISCONNECT: 3
+};
+
+const WARNING_FLAG_COUNT = 1;
+const COOLDOWN_FLAG_COUNT = 3;
+const DISCONNECT_FLAG_COUNT = 5;
+const COOLDOWN_DURATION_MS = 10000;
+
 class PlayerStats {
     constructor() {
         this.shotsByWeapon = new Map();
@@ -31,6 +43,18 @@ class PlayerStats {
             total += count;
         }
         return total;
+    }
+
+    getTotalFlags() {
+        return this.flags.length;
+    }
+
+    getEscalationLevel() {
+        const flagCount = this.flags.length;
+        if (flagCount >= DISCONNECT_FLAG_COUNT) return ESCALATION_LEVELS.DISCONNECT;
+        if (flagCount >= COOLDOWN_FLAG_COUNT) return ESCALATION_LEVELS.COOLDOWN;
+        if (flagCount >= WARNING_FLAG_COUNT) return ESCALATION_LEVELS.WARNING;
+        return ESCALATION_LEVELS.NONE;
     }
 }
 
@@ -103,6 +127,27 @@ class AnomalyDetector {
         this.players.delete(socketId);
     }
 
+    getEscalationLevel(socketId) {
+        const stats = this.players.get(socketId);
+        if (!stats) return ESCALATION_LEVELS.NONE;
+        return stats.getEscalationLevel();
+    }
+
+    isInCooldown(socketId) {
+        const stats = this.players.get(socketId);
+        if (!stats || !stats.cooldownUntil) return false;
+        if (Date.now() < stats.cooldownUntil) return true;
+        stats.cooldownUntil = null;
+        return false;
+    }
+
+    applyCooldown(socketId) {
+        const stats = this.players.get(socketId);
+        if (stats) {
+            stats.cooldownUntil = Date.now() + COOLDOWN_DURATION_MS;
+        }
+    }
+
     getStats() {
         return {
             trackedPlayers: this.players.size,
@@ -114,4 +159,4 @@ class AnomalyDetector {
 
 const anomalyDetector = new AnomalyDetector();
 
-module.exports = { AnomalyDetector, anomalyDetector, SIGMA_THRESHOLD, MIN_SHOTS_FOR_DETECTION };
+module.exports = { AnomalyDetector, anomalyDetector, SIGMA_THRESHOLD, MIN_SHOTS_FOR_DETECTION, ESCALATION_LEVELS, COOLDOWN_DURATION_MS };

@@ -14,7 +14,7 @@
  * - Server-authoritative game state
  * - CSPRNG for all random outcomes
  * - Session management with nonce tracking
- * - RTP values: 1x=91.5%, 3x=94.5%, 5x=97.5%, 8x=99.5%
+ * - RTP values: 1x=91%, 3x=93%, 5x=94%, 8x=95%
  */
 
 const express = require('express');
@@ -35,9 +35,10 @@ const { BinaryWebSocketServer } = require('./src/protocol/BinaryWebSocketServer'
 // Governance Modules (M1-M6)
 const { sequenceTracker } = require('./src/modules/SequenceTracker');
 const { validateTimestamp } = require('./src/modules/LagCompensation');
-const { anomalyDetector } = require('./src/modules/AnomalyDetector');
+const { anomalyDetector, ESCALATION_LEVELS } = require('./src/modules/AnomalyDetector');
 const { ConfigHashManager } = require('./src/modules/ConfigHash');
-const { WEAPONS: WEAPONS_CONFIG } = require('./src/config/GameConfig');
+
+const ENFORCEMENT_PHASE = 3;
 
 process.on('uncaughtException', (err) => {
     console.error('[FATAL][uncaughtException]', err);
@@ -83,10 +84,10 @@ app.get('/health', (req, res) => {
             rateLimiting: true,
             binaryProtocol: true,
             rtpValues: {
-                '1x': '91.5%',
-                '3x': '94.5%',
-                '5x': '97.5%',
-                '8x': '99.5%'
+                '1x': '91%',
+                '3x': '93%',
+                '5x': '94%',
+                '8x': '95%'
             }
         },
         activeSessions: sessionManager.getActiveSessionCount(),
@@ -114,8 +115,51 @@ app.get('/api/governance', (req, res) => {
         rulesHash: configHashManager.getHash(),
         rulesVersion: configHashManager.getVersion(),
         modules: ['M1', 'M2', 'M3', 'M4', 'M5', 'M6'],
-        phase: 'shadow'
+        phase: ENFORCEMENT_PHASE >= 3 ? 'full' : ENFORCEMENT_PHASE >= 2 ? 'soft' : 'shadow',
+        enforcementPhase: ENFORCEMENT_PHASE
     });
+});
+
+app.get('/api/verify', (req, res) => {
+    res.type('text/html').send(`<!DOCTYPE html>
+<html><head><title>Fish3D Receipt Verifier</title>
+<style>
+body{font-family:monospace;max-width:800px;margin:40px auto;padding:0 20px;background:#0a0a1a;color:#00ff88}
+h1{color:#00ccff}h2{color:#ffaa00}
+.pass{color:#00ff88}.fail{color:#ff4444}
+textarea{width:100%;height:200px;background:#111;color:#0f0;border:1px solid #333;font-family:monospace;padding:8px}
+button{background:#00ccff;color:#000;border:none;padding:10px 24px;cursor:pointer;font-weight:bold;margin:8px 0}
+button:hover{background:#00aadd}
+#result{padding:16px;margin:16px 0;border:1px solid #333}
+table{width:100%;border-collapse:collapse}td,th{border:1px solid #333;padding:6px;text-align:left}
+</style></head><body>
+<h1>Fish3D Receipt Chain Verifier</h1>
+<p>Paste your receipts JSON array below, or fetch from server:</p>
+<button onclick="fetchReceipts()">Fetch from Server</button>
+<textarea id="input" placeholder='[{"type":"FISH_DEATH",...}]'></textarea>
+<button onclick="verify()">Verify Chain</button>
+<div id="result"></div>
+<script>
+async function sha256(str){const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(str));return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('')}
+async function verify(){
+const el=document.getElementById('result');
+try{
+const receipts=JSON.parse(document.getElementById('input').value);
+if(!Array.isArray(receipts)){el.innerHTML='<span class="fail">Input must be a JSON array</span>';return}
+let prev='GENESIS';let html='<h2>Chain Verification</h2><table><tr><th>#</th><th>Type</th><th>Fish</th><th>Payout</th><th>Hash</th><th>Status</th></tr>';
+for(let i=0;i<receipts.length;i++){
+const r=receipts[i];
+const chainOk=r.prevHash===prev;
+const{hash,...rest}=r;
+const computed=await sha256(JSON.stringify(rest));
+const hashOk=computed===hash;
+const ok=chainOk&&hashOk;
+html+='<tr><td>'+i+'</td><td>'+r.type+'</td><td>'+(r.fish_type||'-')+'</td><td>'+(r.payout_total||0)+'</td><td>'+(hash?hash.substring(0,12)+'...':'-')+'</td><td class="'+(ok?'pass':'fail')+'">'+(ok?'PASS':'FAIL'+(chainOk?'':' chain')+(hashOk?'':' hash'))+'</td></tr>';
+prev=hash}
+html+='</table><p class="'+(prev?'pass':'fail')+'">Total: '+receipts.length+' receipts verified</p>';
+el.innerHTML=html}catch(e){el.innerHTML='<span class="fail">Error: '+e.message+'</span>'}}
+function fetchReceipts(){document.getElementById('result').innerHTML='<p>Connect via Socket.IO and emit requestReceipts event to get receipts</p>'}
+</script></body></html>`);
 });
 
 // M5: Client-side receipt verifier (served as JS)
@@ -182,7 +226,7 @@ const playerRooms = {}; // socketId -> roomCode
 
 // M6: Initialize config hash on startup
 const configHashManager = new ConfigHashManager({
-    WEAPONS: WEAPONS_CONFIG,
+    WEAPONS,
     FISH_SPECIES
 });
 
@@ -290,7 +334,10 @@ io.on('connection', (socket) => {
             roomCode,
             playerId: 1,
             slotIndex: 0,
-            isHost: true
+            isHost: true,
+            rulesHash: configHashManager.getHash(),
+            rulesVersion: configHashManager.getVersion(),
+            enforcementPhase: ENFORCEMENT_PHASE
         });
         
         broadcastRoomState(roomCode);
@@ -456,7 +503,32 @@ io.on('connection', (socket) => {
         
         if (!roomCode || !gameEngines[roomCode]) return;
         
-        // M1: Anti-replay sequence validation
+        if (typeof targetX !== 'number' || typeof targetZ !== 'number' ||
+            !isFinite(targetX) || !isFinite(targetZ)) {
+            socket.emit('shootRejected', {
+                reason: 'INVALID_COORDINATES',
+                timestamp: Date.now()
+            });
+            return;
+        }
+        
+        // M4: Check if player is in anomaly cooldown
+        if (anomalyDetector.isInCooldown(socket.id)) {
+            socket.emit('shootRejected', {
+                reason: 'ANOMALY_COOLDOWN',
+                timestamp: Date.now()
+            });
+            return;
+        }
+        
+        // M1: Anti-replay sequence validation (mandatory Phase 2+)
+        if (ENFORCEMENT_PHASE >= 2 && typeof seq !== 'number') {
+            socket.emit('shootRejected', {
+                reason: 'SEQ_REQUIRED',
+                timestamp: Date.now()
+            });
+            return;
+        }
         if (typeof seq === 'number') {
             const seqResult = sequenceTracker.validate(socket.id, seq);
             if (!seqResult.valid) {
@@ -468,7 +540,14 @@ io.on('connection', (socket) => {
             }
         }
         
-        // M1: Lag compensation — reject if beyond 200ms window
+        // M1: Lag compensation (mandatory Phase 3)
+        if (ENFORCEMENT_PHASE >= 3 && typeof clientTime !== 'number') {
+            socket.emit('shootRejected', {
+                reason: 'CLIENT_TIME_REQUIRED',
+                timestamp: Date.now()
+            });
+            return;
+        }
         if (typeof clientTime === 'number') {
             const lagResult = validateTimestamp(clientTime);
             if (!lagResult.valid) {
@@ -489,16 +568,34 @@ io.on('connection', (socket) => {
         
         gameEngines[roomCode].handleShoot(socket.id, targetX, targetZ, io);
         
-        // M4: Periodic anomaly check (every 100 shots)
+        // M4: Periodic anomaly check with escalation (every 100 shots)
         const stats = anomalyDetector.getPlayerStats(socket.id);
         if (stats && stats.getTotalShots() % 100 === 0) {
             const anomalies = anomalyDetector.checkAnomaly(socket.id);
             if (anomalies) {
-                console.warn(`[ANTI-CHEAT] Anomaly detected for ${socket.id}:`, JSON.stringify(anomalies));
-                socket.emit('anomalyWarning', {
-                    message: 'Statistical anomaly detected in your play pattern',
-                    flags: anomalies.length
-                });
+                const level = anomalyDetector.getEscalationLevel(socket.id);
+                console.warn(`[ANTI-CHEAT] Anomaly for ${socket.id}: level=${level} flags=${anomalies.length}`, JSON.stringify(anomalies));
+                
+                if (level >= ESCALATION_LEVELS.DISCONNECT) {
+                    socket.emit('anomalyDisconnect', {
+                        message: 'Disconnected: persistent anomaly detected',
+                        flags: stats.getTotalFlags()
+                    });
+                    socket.disconnect(true);
+                    return;
+                } else if (level >= ESCALATION_LEVELS.COOLDOWN) {
+                    anomalyDetector.applyCooldown(socket.id);
+                    socket.emit('anomalyCooldown', {
+                        message: 'Temporary cooldown applied due to anomaly',
+                        durationMs: 10000,
+                        flags: stats.getTotalFlags()
+                    });
+                } else {
+                    socket.emit('anomalyWarning', {
+                        message: 'Statistical anomaly detected in your play pattern',
+                        flags: anomalies.length
+                    });
+                }
             }
         }
     });
@@ -633,7 +730,8 @@ io.on('connection', (socket) => {
             slotIndex: 0,
             rulesHash: configHashManager.getHash(),
             rulesVersion: configHashManager.getVersion(),
-            seedCommitment: seedInfo ? seedInfo.currentCommitment : null
+            seedCommitment: seedInfo ? seedInfo.currentCommitment : null,
+            enforcementPhase: ENFORCEMENT_PHASE
         });
         
         gameEngines[roomCode].startGameLoop(io);
@@ -641,18 +739,41 @@ io.on('connection', (socket) => {
     
     // ============ DISCONNECT HANDLING ============
     
+    // M6: Client sends version check on game start
+    socket.on('versionCheck', (data) => {
+        const { rulesVersion } = data || {};
+        const serverVersion = configHashManager.getVersion();
+        if (rulesVersion !== serverVersion) {
+            socket.emit('versionMismatch', {
+                clientVersion: rulesVersion,
+                serverVersion: serverVersion,
+                action: 'REFRESH_REQUIRED'
+            });
+        } else {
+            socket.emit('versionOk', { version: serverVersion });
+        }
+    });
+    
     // M3: Client requests seed reveal (for fairness verification)
     socket.on('requestSeedReveal', () => {
+        const seedRevealCheck = rateLimiter.checkStateRequest(socket.id);
+        if (!seedRevealCheck.allowed) return;
         const roomCode = playerRooms[socket.id];
         if (!roomCode || !gameEngines[roomCode]) return;
         const reveal = gameEngines[roomCode].revealSeed();
         if (reveal) {
-            socket.emit('seedRevealed', reveal);
+            const newCommitment = gameEngines[roomCode].getSeedCommitment();
+            socket.emit('seedRevealed', {
+                ...reveal,
+                newCommitment: newCommitment ? newCommitment.currentCommitment : null
+            });
         }
     });
     
     // M5: Client requests receipts for verification
     socket.on('requestReceipts', () => {
+        const receiptsCheck = rateLimiter.checkStateRequest(socket.id);
+        if (!receiptsCheck.allowed) return;
         const roomCode = playerRooms[socket.id];
         if (!roomCode || !gameEngines[roomCode]) return;
         const receipts = gameEngines[roomCode].getReceipts();

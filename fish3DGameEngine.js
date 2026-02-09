@@ -17,6 +17,8 @@ const { performance } = require('perf_hooks');
 const { RoomSeedManager } = require('./src/modules/SeedCommitment');
 // M5: Audit receipt chain
 const { ReceiptChain, createFishDeathReceipt } = require('./src/modules/AuditReceipt');
+// M4: Anomaly detection for hit rate tracking
+const { anomalyDetector } = require('./src/modules/AnomalyDetector');
 
 /**
  * Seeded Random Number Generator (Mulberry32)
@@ -871,6 +873,7 @@ class Fish3DGameEngine {
                 const shooter = this.players.get(bullet.ownerSocketId);
                 if (shooter) {
                     shooter.totalHits++;
+                    anomalyDetector.recordHit(bullet.ownerSocketId, bullet.weapon);
                 }
                 
                 if (!bullet.fishAlreadyHit) bullet.fishAlreadyHit = new Set();
