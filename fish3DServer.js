@@ -32,6 +32,13 @@ const { rateLimiter } = require('./src/security/RateLimiter');
 // Binary protocol modules (PDF Specification Section 4.3)
 const { BinaryWebSocketServer } = require('./src/protocol/BinaryWebSocketServer');
 
+// Governance Modules (M1-M6)
+const { sequenceTracker } = require('./src/modules/SequenceTracker');
+const { validateTimestamp } = require('./src/modules/LagCompensation');
+const { anomalyDetector } = require('./src/modules/AnomalyDetector');
+const { ConfigHashManager } = require('./src/modules/ConfigHash');
+const { WEAPONS: WEAPONS_CONFIG } = require('./src/config/GameConfig');
+
 process.on('uncaughtException', (err) => {
     console.error('[FATAL][uncaughtException]', err);
     console.error('Stack:', err.stack);
@@ -65,7 +72,8 @@ app.get('/health', (req, res) => {
         status: 'ok', 
         timestamp: new Date().toISOString(),
         rooms: Object.keys(rooms).length,
-        version: '3.6.0-binary-protocol-complete',
+        version: '4.0.0-governance-modules',
+        governance: configHashManager.getInfo(),
         fishSpeedScale: fishSpeedScale,
         security: {
             sessionManagement: true,
@@ -98,6 +106,45 @@ app.get('/api/fish-species', (req, res) => {
 // API endpoint to get weapons
 app.get('/api/weapons', (req, res) => {
     res.json(WEAPONS);
+});
+
+// M6: API endpoint for config hash and version
+app.get('/api/governance', (req, res) => {
+    res.json({
+        rulesHash: configHashManager.getHash(),
+        rulesVersion: configHashManager.getVersion(),
+        modules: ['M1', 'M2', 'M3', 'M4', 'M5', 'M6'],
+        phase: 'shadow'
+    });
+});
+
+// M5: Client-side receipt verifier (served as JS)
+app.get('/api/verifier.js', (req, res) => {
+    res.type('application/javascript').send(`
+// Fish3D Receipt Chain Verifier
+// Usage: verifyChain(receipts) => { valid: boolean, error?: string }
+function sha256(str) {
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(str))
+        .then(buf => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join(''));
+}
+async function verifyChain(receipts) {
+    let expectedPrevHash = 'GENESIS';
+    for (let i = 0; i < receipts.length; i++) {
+        const r = receipts[i];
+        if (r.prevHash !== expectedPrevHash) {
+            return { valid: false, error: 'Chain broken at index ' + i, index: i };
+        }
+        const { hash, ...rest } = r;
+        const computed = await sha256(JSON.stringify(rest));
+        if (computed !== hash) {
+            return { valid: false, error: 'Hash mismatch at index ' + i, index: i };
+        }
+        expectedPrevHash = hash;
+    }
+    return { valid: true, length: receipts.length };
+}
+if (typeof module !== 'undefined') module.exports = { verifyChain, sha256 };
+`);
 });
 
 // API endpoint to list public rooms
@@ -133,6 +180,12 @@ const rooms = {};
 const gameEngines = {}; // roomCode -> Fish3DGameEngine instance
 const playerRooms = {}; // socketId -> roomCode
 
+// M6: Initialize config hash on startup
+const configHashManager = new ConfigHashManager({
+    WEAPONS: WEAPONS_CONFIG,
+    FISH_SPECIES
+});
+
 /**
  * Generate a random room code
  */
@@ -164,6 +217,9 @@ io.on('connection', (socket) => {
     
     // Register connection with rate limiter
     rateLimiter.registerConnection(socket.id, clientIP);
+    
+    // M1: Initialize sequence tracker for anti-replay
+    sequenceTracker.initSession(socket.id);
     
     // Create session for this connection (security feature)
     const playerId = `player-${socket.id.substring(0, 8)}`;
@@ -221,8 +277,8 @@ io.on('connection', (socket) => {
             createdAt: Date.now()
         };
         
-        // Create game engine
-        gameEngines[roomCode] = new Fish3DGameEngine(roomCode);
+        // Create game engine (M6: pass configHashManager)
+        gameEngines[roomCode] = new Fish3DGameEngine(roomCode, { configHashManager });
         gameEngines[roomCode].addPlayer(socket.id, 1, playerName || 'Player 1');
         
         socket.join(roomCode);
@@ -382,21 +438,69 @@ io.on('connection', (socket) => {
         // Rate limit shooting
         const shootCheck = rateLimiter.checkShoot(socket.id, clientIP);
         if (!shootCheck.allowed) {
-            // Check if session should be banned for too many violations
             if (rateLimiter.shouldBanSession(socket.id)) {
                 socket.emit('error', { message: 'Session banned for excessive rate limit violations.' });
                 socket.disconnect(true);
                 return;
             }
-            return; // Silently drop excess shots
+            // M4: RL-005 fix — explicit rejection instead of silent drop
+            socket.emit('shootRejected', {
+                reason: shootCheck.reason || 'RATE_LIMITED',
+                timestamp: Date.now()
+            });
+            return;
         }
         
-        const { targetX, targetZ } = data;
+        const { targetX, targetZ, seq, clientTime } = data;
         const roomCode = playerRooms[socket.id];
         
         if (!roomCode || !gameEngines[roomCode]) return;
         
+        // M1: Anti-replay sequence validation
+        if (typeof seq === 'number') {
+            const seqResult = sequenceTracker.validate(socket.id, seq);
+            if (!seqResult.valid) {
+                socket.emit('shootRejected', {
+                    reason: seqResult.reason,
+                    timestamp: Date.now()
+                });
+                return;
+            }
+        }
+        
+        // M1: Lag compensation — reject if beyond 200ms window
+        if (typeof clientTime === 'number') {
+            const lagResult = validateTimestamp(clientTime);
+            if (!lagResult.valid) {
+                socket.emit('shootRejected', {
+                    reason: lagResult.reason,
+                    latency: lagResult.latency,
+                    timestamp: Date.now()
+                });
+                return;
+            }
+        }
+        
+        // M4: Record shot for anomaly detection
+        const player = gameEngines[roomCode].players.get(socket.id);
+        if (player) {
+            anomalyDetector.recordShot(socket.id, player.currentWeapon);
+        }
+        
         gameEngines[roomCode].handleShoot(socket.id, targetX, targetZ, io);
+        
+        // M4: Periodic anomaly check (every 100 shots)
+        const stats = anomalyDetector.getPlayerStats(socket.id);
+        if (stats && stats.getTotalShots() % 100 === 0) {
+            const anomalies = anomalyDetector.checkAnomaly(socket.id);
+            if (anomalies) {
+                console.warn(`[ANTI-CHEAT] Anomaly detected for ${socket.id}:`, JSON.stringify(anomalies));
+                socket.emit('anomalyWarning', {
+                    message: 'Statistical anomaly detected in your play pattern',
+                    flags: anomalies.length
+                });
+            }
+        }
     });
     
     // Player changes weapon
@@ -506,10 +610,13 @@ io.on('connection', (socket) => {
             maxPlayers: 1,
             state: 'playing',
             isSinglePlayer: true,
+            mode: 'singleplayer',
             createdAt: Date.now()
         };
         
-        gameEngines[roomCode] = new Fish3DGameEngine(roomCode);
+        // M6: Pass config hash manager to engine
+        // M3: Engine creates its own RoomSeedManager internally
+        gameEngines[roomCode] = new Fish3DGameEngine(roomCode, { configHashManager });
         gameEngines[roomCode].addPlayer(socket.id, 1, playerName || 'Player');
         
         socket.join(roomCode);
@@ -517,16 +624,44 @@ io.on('connection', (socket) => {
         
         console.log(`[SINGLE-PLAYER] Started single player game: ${roomCode}`);
         
+        // M3: Send seed commitment to client
+        const seedInfo = gameEngines[roomCode].getSeedCommitment();
+        
         socket.emit('singlePlayerStarted', {
             roomCode,
             playerId: 1,
-            slotIndex: 0
+            slotIndex: 0,
+            rulesHash: configHashManager.getHash(),
+            rulesVersion: configHashManager.getVersion(),
+            seedCommitment: seedInfo ? seedInfo.currentCommitment : null
         });
         
         gameEngines[roomCode].startGameLoop(io);
     });
     
     // ============ DISCONNECT HANDLING ============
+    
+    // M3: Client requests seed reveal (for fairness verification)
+    socket.on('requestSeedReveal', () => {
+        const roomCode = playerRooms[socket.id];
+        if (!roomCode || !gameEngines[roomCode]) return;
+        const reveal = gameEngines[roomCode].revealSeed();
+        if (reveal) {
+            socket.emit('seedRevealed', reveal);
+        }
+    });
+    
+    // M5: Client requests receipts for verification
+    socket.on('requestReceipts', () => {
+        const roomCode = playerRooms[socket.id];
+        if (!roomCode || !gameEngines[roomCode]) return;
+        const receipts = gameEngines[roomCode].getReceipts();
+        socket.emit('receipts', {
+            roomCode,
+            receipts,
+            chainValid: gameEngines[roomCode].verifyReceiptChain()
+        });
+    });
     
     socket.on('disconnect', (reason) => {
         console.log(`[SOCKET] Client disconnected: ${socket.id}, reason: ${reason}`);
@@ -536,7 +671,12 @@ io.on('connection', (socket) => {
         
         // Clean up session (security feature)
         sessionManager.destroySessionBySocket(socket.id);
-        console.log(`[SECURITY] Session destroyed for socket ${socket.id}`);
+        
+        // M1: Clean up sequence tracker
+        sequenceTracker.destroySession(socket.id);
+        
+        // M4: Clean up anomaly detector
+        anomalyDetector.destroyPlayer(socket.id);
         
         handlePlayerLeave(socket);
     });

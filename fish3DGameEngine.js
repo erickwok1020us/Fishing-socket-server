@@ -13,6 +13,11 @@
 
 const { performance } = require('perf_hooks');
 
+// M3: Seed commitment for provably fair HP derivation
+const { RoomSeedManager } = require('./src/modules/SeedCommitment');
+// M5: Audit receipt chain
+const { ReceiptChain, createFishDeathReceipt } = require('./src/modules/AuditReceipt');
+
 /**
  * Seeded Random Number Generator (Mulberry32)
  * Ensures all clients see the same fish spawns
@@ -240,9 +245,22 @@ const PENETRATING_DAMAGE_MULTIPLIERS = [1.0, 0.8, 0.6, 0.4, 0.2];
  * 3D Fish Shooting Game Engine
  */
 class Fish3DGameEngine {
-    constructor(roomCode, seed = null) {
+    constructor(roomCode, options = {}) {
         this.roomCode = roomCode;
+        const seed = (typeof options === 'number') ? options : null;
         this.rng = new SeededRNG(seed || Date.now());
+        
+        // M3: Seed commitment manager for provably fair HP
+        this.seedManager = new RoomSeedManager(roomCode);
+        
+        // M5: Receipt chain for audit trail
+        this.receiptChain = new ReceiptChain(roomCode);
+        
+        // M6: Config hash reference
+        this.configHashManager = (options && options.configHashManager) || null;
+        
+        // M2: Finisher pool config (0% for single-player per DEC-M2-002)
+        this.finisherPoolPercent = 0;
         
         // Player management (max 4 players)
         this.players = new Map(); // socketId -> player data
@@ -470,6 +488,21 @@ class Fish3DGameEngine {
         const path = this.generateFishPath(fishType);
         const fishId = this.nextFishId++;
         
+        // M3: Derive HP from seed commitment if hpRange is available
+        let fishHP = fishType.health;
+        let seedCommitment = null;
+        let spawnIdx = null;
+        if (fishType.hpRange && fishType.hpRange.length === 2) {
+            const hpResult = this.seedManager.getFishHP(
+                fishType.typeName,
+                fishType.hpRange[0],
+                fishType.hpRange[1]
+            );
+            fishHP = hpResult.hp;
+            seedCommitment = hpResult.commitment;
+            spawnIdx = hpResult.spawnIndex;
+        }
+        
         const fish = {
             fishId,
             typeName: fishType.typeName,
@@ -487,18 +520,16 @@ class Fish3DGameEngine {
             rotation: path.rotation,
             speed: fishType.speed,
             
-            // Stats
-            health: fishType.health,
-            maxHealth: fishType.health,
+            // Stats (M3: HP derived from seed commitment)
+            health: fishHP,
+            maxHealth: fishHP,
             multiplier: fishType.multiplier,
             size: fishType.size,
             
             // Damage tracking (for last-hit-wins)
             lastHitBy: null,
             damageByPlayer: new Map(),
-            // Cost tracking for RTP calculation (cost spent by each player on this fish)
             costByPlayer: new Map(),
-            // RTP-weighted cost tracking (cost * weapon.rtp for each player)
             rtpWeightedCostByPlayer: new Map(),
             
             // Flags
@@ -506,6 +537,10 @@ class Fish3DGameEngine {
             isSpecial: fishType.isSpecial || false,
             specialType: fishType.specialType || null,
             isAlive: true,
+            
+            // M3: Seed commitment data
+            seedCommitment: seedCommitment,
+            spawnIndex: spawnIdx,
             
             // Timing
             spawnTime: Date.now()
@@ -898,20 +933,19 @@ class Fish3DGameEngine {
     handleFishKill(fish, bullet, io) {
         fish.isAlive = false;
         
-        // Calculate total RTP-weighted cost (this is the total reward pool)
         let totalRtpWeightedCost = 0;
         for (const [socketId, rtpWeightedCost] of fish.rtpWeightedCostByPlayer) {
             totalRtpWeightedCost += rtpWeightedCost;
         }
         
-        // If no cost was tracked (shouldn't happen), fall back to 0 reward
         if (totalRtpWeightedCost === 0) {
             this.fish.delete(fish.fishId);
             return;
         }
         
-        // Round total reward to nearest integer
-        const totalReward = Math.round(totalRtpWeightedCost);
+        // M2: Apply finisher pool deduction
+        const finisherDeduction = totalRtpWeightedCost * this.finisherPoolPercent;
+        const totalReward = Math.round(totalRtpWeightedCost - finisherDeduction);
         
         const rewardDistribution = [];
         let totalDistributed = 0;
@@ -990,6 +1024,10 @@ class Fish3DGameEngine {
             this.killsSinceLastBoss++;
         }
         
+        // M6/M3: Include rules hash and seed commitment in kill event
+        const rulesHash = this.configHashManager ? this.configHashManager.getHash() : null;
+        const rulesVersion = this.configHashManager ? this.configHashManager.getVersion() : null;
+        
         io.to(this.roomCode).emit('fishKilled', {
             fishId: fish.fishId,
             typeName: fish.typeName,
@@ -997,8 +1035,21 @@ class Fish3DGameEngine {
             totalReward: totalReward,
             rewardDistribution: rewardDistribution,
             isBoss: fish.isBoss,
-            position: { x: fish.x, z: fish.z }
+            position: { x: fish.x, z: fish.z },
+            seedCommitment: fish.seedCommitment,
+            rulesHash: rulesHash
         });
+        
+        // M5: Generate audit receipt for this fish death
+        const receipt = createFishDeathReceipt(
+            fish,
+            rewardDistribution,
+            totalReward,
+            rulesHash,
+            rulesVersion,
+            fish.seedCommitment
+        );
+        this.receiptChain.addReceipt(receipt);
         
         if (fish.isSpecial && fish.specialType === 'bomb' && topContributor) {
             this.handleBombExplosion(fish, topContributor, io);
@@ -1205,6 +1256,28 @@ class Fish3DGameEngine {
             bossWaveActive: this.bossWaveActive,
             serverTick: this.serverTick
         };
+    }
+    
+    // M3: Get current seed commitment info
+    getSeedCommitment() {
+        return this.seedManager.getInfo();
+    }
+    
+    // M3: Reveal current seed for verification
+    revealSeed() {
+        const reveal = this.seedManager.revealCurrentSeed();
+        this.seedManager.rotateSeed();
+        return reveal;
+    }
+    
+    // M5: Get all receipts for this room
+    getReceipts() {
+        return this.receiptChain.getReceipts();
+    }
+    
+    // M5: Verify the receipt chain integrity
+    verifyReceiptChain() {
+        return this.receiptChain.verifyChain();
     }
 }
 
