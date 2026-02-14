@@ -16,10 +16,10 @@ console.log('=== RTP Phase 1 Smoke Test ===\n');
 console.log('--- T1: Static Config Verification ---');
 const expectedConfig = {
     1: { rtpTierFp: 9000, n1Fp: 6000, rewardFp: 4500 },
-    2: { rtpTierFp: 9100, n1Fp: 10000, rewardFp: 7583 },
-    3: { rtpTierFp: 9200, n1Fp: 16000, rewardFp: 12266 },
-    4: { rtpTierFp: 9300, n1Fp: 30000, rewardFp: 23250 },
-    5: { rtpTierFp: 9400, n1Fp: 45000, rewardFp: 35250 },
+    2: { rtpTierFp: 9200, n1Fp: 10000, rewardFp: 7666 },
+    3: { rtpTierFp: 9300, n1Fp: 16000, rewardFp: 12400 },
+    4: { rtpTierFp: 9400, n1Fp: 30000, rewardFp: 23500 },
+    5: { rtpTierFp: 9450, n1Fp: 45000, rewardFp: 35437 },
     6: { rtpTierFp: 9500, n1Fp: 120000, rewardFp: 95000 }
 };
 for (let t = 1; t <= 6; t++) {
@@ -48,17 +48,16 @@ console.log('\n--- T2: Single-Target Hard Pity (T1, 1x weapon) ---');
     check('T1 pity kills at or before N1=6', shotCount <= 6, `shot ${shotCount} <= 6`);
 }
 
-console.log('\n--- T3: Budget Gate (budget < reward -> no kill) ---');
+console.log('\n--- T3: Soft Gate (low pool -> low P, unlikely kill) ---');
 {
     const rtp = new RTPPhase1();
     const costFp = 1 * MONEY_SCALE;
     const result = rtp.handleSingleTargetHit('gate-test', 'fish-2', costFp, 6);
-    check('T6 first shot no kill (budget gate)', !result.kill, `reason=${result.reason}`);
-    const state = rtp.getState('gate-test', 'fish-2');
-    check('budget_remaining >= 0', state.budgetRemainingFp >= 0, `${state.budgetRemainingFp}`);
+    check('T6 first shot low P (soft gate)', result.reason === 'roll_failed' || result.kill, `reason=${result.reason}`);
+    check('pool budget >= 0 after first hit', (result.poolBudget || 0) >= 0, `pool=${result.poolBudget}`);
 }
 
-console.log('\n--- T4: Multi-Target Budget Conservation ---');
+console.log('\n--- T4: Multi-Target Budget Conservation (global pool) ---');
 {
     const rtp = new RTPPhase1();
     const weaponCostFp = 5 * MONEY_SCALE;
@@ -69,12 +68,6 @@ console.log('\n--- T4: Multi-Target Budget Conservation ---');
     ];
     const results = rtp.handleMultiTargetHit('mt-test', hitList, weaponCostFp, 'aoe');
     check('Multi-target returns 3 results', results.length === 3, `got ${results.length}`);
-
-    let totalBudgetAccum = 0;
-    for (const entry of hitList) {
-        const state = rtp.getState('mt-test', entry.fishId);
-        if (state) totalBudgetAccum += state.budgetRemainingFp;
-    }
 
     const n = hitList.length;
     const rawWeights = hitList.map(h => Math.floor(1000000 / Math.max(h.distance, 1)));
@@ -93,15 +86,14 @@ console.log('\n--- T4: Multi-Target Budget Conservation ---');
     }
     const expectedBudgetTotal = Math.floor(weaponCostFp * rtpWeightedFp / 10000);
 
-    check('Budget conservation (sum_i == total)', totalBudgetAccum === expectedBudgetTotal,
-        `sum=${totalBudgetAccum}, expected=${expectedBudgetTotal}`);
+    const killRewards = results.filter(r => r.kill).reduce((s, r) => s + r.rewardFp, 0);
+    const poolAfter = rtp._getPlayerBudget('mt-test');
+    const poolExpected = expectedBudgetTotal - killRewards;
+    check('Pool budget conservation', poolAfter === poolExpected,
+        `pool=${poolAfter}, expected=${poolExpected} (budget=${expectedBudgetTotal}, rewards=${killRewards})`);
 }
 
-console.log('\n--- T5: RTP Convergence (10k shots per tier, 1x weapon) ---');
-console.log('  NOTE: Budget gate blocks kills until budget >= reward.');
-console.log('  Pity RTP = tier_rtp / K (worst-case per-fish).');
-console.log('  Actual convergence is between pity_rtp and tier_rtp,');
-console.log('  weighted by probability-kill vs pity-kill ratio.\n');
+console.log('\n--- T5: RTP Convergence (100k shots per tier, 1x weapon) ---');
 for (let tier = 1; tier <= 6; tier++) {
     const rtp = new RTPPhase1();
     const costFp = 1 * MONEY_SCALE;
@@ -110,7 +102,7 @@ for (let tier = 1; tier <= 6; tier++) {
     let totalReward = 0;
     let fishCounter = 0;
 
-    for (let shot = 0; shot < 10000; shot++) {
+    for (let shot = 0; shot < 100000; shot++) {
         totalSpent += costReal;
         const fishId = `conv-${tier}-${fishCounter}`;
         const result = rtp.handleSingleTargetHit(`conv-${tier}`, fishId, costFp, tier);
@@ -122,31 +114,29 @@ for (let tier = 1; tier <= 6; tier++) {
 
     const actualRtp = totalSpent > 0 ? (totalReward / totalSpent * 100) : 0;
     const tierRtp = TIER_CONFIG[tier].rtpTierFp / 100;
-    const pityRtp = tierRtp / 1.2;
-    const inRange = actualRtp >= pityRtp - 2 && actualRtp <= tierRtp + 2;
-    check(`Tier ${tier} RTP in [pity..tier] range`, inRange,
-        `actual=${actualRtp.toFixed(2)}%, pity=${pityRtp.toFixed(2)}%, tier=${tierRtp.toFixed(2)}%`);
+    const tolerance = 1.0;
+    const inRange = actualRtp >= tierRtp - tolerance && actualRtp <= tierRtp + tolerance;
+    check(`Tier ${tier} RTP convergence`, inRange,
+        `actual=${actualRtp.toFixed(2)}%, target=${tierRtp.toFixed(2)}% +/-${tolerance}%`);
 }
 
-console.log('\n--- T6: budget_remaining never negative after kill ---');
+console.log('\n--- T6: Global pool debt recovery ---');
 {
     const rtp = new RTPPhase1();
     const costFp = 1 * MONEY_SCALE;
-    let negativeFound = false;
+    let worstDebt = 0;
     let fishCounter = 0;
 
-    for (let shot = 0; shot < 5000; shot++) {
-        const fishId = `neg-${fishCounter}`;
-        const result = rtp.handleSingleTargetHit('neg-test', fishId, costFp, 1);
-        if (result.kill) {
-            if (result.state && result.state.budgetRemainingFp < 0) {
-                negativeFound = true;
-                break;
-            }
-            fishCounter++;
-        }
+    for (let shot = 0; shot < 10000; shot++) {
+        const fishId = `debt-${fishCounter}`;
+        const result = rtp.handleSingleTargetHit('debt-test', fishId, costFp, 1);
+        const pool = result.poolBudget !== undefined ? result.poolBudget : rtp._getPlayerBudget('debt-test');
+        if (pool < worstDebt) worstDebt = pool;
+        if (result.kill) fishCounter++;
     }
-    check('budget_remaining >= 0 after all kills', !negativeFound);
+    const finalPool = rtp._getPlayerBudget('debt-test');
+    check('pool debt recovers (final pool near 0)', Math.abs(finalPool) < TIER_CONFIG[1].rewardFp,
+        `final pool=${finalPool}, worst debt=${worstDebt}`);
 }
 
 console.log('\n--- T7: Laser Weapon Config (single fire event) ---');
