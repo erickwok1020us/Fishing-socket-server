@@ -70,7 +70,6 @@ class RTPPhase1 {
             state = {
                 sumCostFp: 0,
                 budgetRemainingFp: 0,
-                pityReached: false,
                 killed: false
             };
             this.states.set(key, state);
@@ -112,12 +111,12 @@ class RTPPhase1 {
         state.budgetRemainingFp += budgetTotalFp;
         state.sumCostFp += weaponCostFp;
 
-        if (state.sumCostFp >= config.n1Fp && state.budgetRemainingFp >= config.rewardFp) {
+        if (state.sumCostFp >= config.n1Fp) {
             return this._executeKill(state, config, playerId, fishId, 'hard_pity');
         }
 
-        const effectiveBudget = Math.max(0, state.budgetRemainingFp);
-        const pBaseFp = Math.min(P_SCALE, Math.floor(effectiveBudget * P_SCALE / config.rewardFp));
+        // P_base uses per-hit budget (constant), NOT accumulated budget_remaining.
+        const pBaseFp = Math.min(P_SCALE, Math.floor(budgetTotalFp * P_SCALE / config.rewardFp));
         const progressFp = Math.floor(state.sumCostFp * PROGRESS_SCALE / config.n1Fp);
         const aFp = Math.floor(pBaseFp / 2);
         const pFp = Math.min(P_SCALE, pBaseFp + Math.floor(aFp * progressFp / PROGRESS_SCALE));
@@ -211,13 +210,13 @@ class RTPPhase1 {
             state.sumCostFp += costIFp;
             state.budgetRemainingFp += budgetAllocFp[i];
 
-            if (state.sumCostFp >= config.n1Fp && state.budgetRemainingFp >= config.rewardFp) {
+            if (state.sumCostFp >= config.n1Fp) {
                 results.push(this._executeKill(state, config, playerId, entry.fishId, 'hard_pity'));
                 continue;
             }
 
-            const effectiveBudget = Math.max(0, state.budgetRemainingFp);
-            const pBaseIFp = Math.min(P_SCALE, Math.floor(effectiveBudget * P_SCALE / config.rewardFp));
+            // P_base_i uses per-hit budget allocation (constant), NOT accumulated budget.
+            const pBaseIFp = Math.min(P_SCALE, Math.floor(budgetAllocFp[i] * P_SCALE / config.rewardFp));
             const progressIFp = Math.floor(state.sumCostFp * PROGRESS_SCALE / config.n1Fp);
             const aIFp = Math.floor(pBaseIFp / 2);
             const pIFp = Math.min(P_SCALE, pBaseIFp + Math.floor(aIFp * progressIFp / PROGRESS_SCALE));
