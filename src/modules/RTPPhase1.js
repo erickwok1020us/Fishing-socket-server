@@ -53,6 +53,7 @@ const TIER_CONFIG = {
 const AOE_MAX_TARGETS = 8;
 const LASER_MAX_TARGETS = 6;
 const EPSILON_FP = 1;
+const RAMP_START = 800000;
 
 class RTPPhase1 {
     constructor() {
@@ -115,11 +116,12 @@ class RTPPhase1 {
             return this._executeKill(state, config, playerId, fishId, 'hard_pity');
         }
 
-        // P_base uses per-hit budget (constant), NOT accumulated budget_remaining.
         const pBaseFp = Math.min(P_SCALE, Math.floor(budgetTotalFp * P_SCALE / config.rewardFp));
         const progressFp = Math.floor(state.sumCostFp * PROGRESS_SCALE / config.n1Fp);
+        const rFp = progressFp <= RAMP_START ? 0
+            : Math.min(PROGRESS_SCALE, Math.floor((progressFp - RAMP_START) * PROGRESS_SCALE / (PROGRESS_SCALE - RAMP_START)));
         const aFp = Math.floor(pBaseFp / 2);
-        const pFp = Math.min(P_SCALE, pBaseFp + Math.floor(aFp * progressFp / PROGRESS_SCALE));
+        const pFp = Math.min(P_SCALE, pBaseFp + Math.floor(aFp * rFp / PROGRESS_SCALE));
 
         const rand = Math.floor(secureRandom() * P_SCALE);
 
@@ -215,11 +217,12 @@ class RTPPhase1 {
                 continue;
             }
 
-            // P_base_i uses per-hit budget allocation (constant), NOT accumulated budget.
             const pBaseIFp = Math.min(P_SCALE, Math.floor(budgetAllocFp[i] * P_SCALE / config.rewardFp));
             const progressIFp = Math.floor(state.sumCostFp * PROGRESS_SCALE / config.n1Fp);
+            const rIFp = progressIFp <= RAMP_START ? 0
+                : Math.min(PROGRESS_SCALE, Math.floor((progressIFp - RAMP_START) * PROGRESS_SCALE / (PROGRESS_SCALE - RAMP_START)));
             const aIFp = Math.floor(pBaseIFp / 2);
-            const pIFp = Math.min(P_SCALE, pBaseIFp + Math.floor(aIFp * progressIFp / PROGRESS_SCALE));
+            const pIFp = Math.min(P_SCALE, pBaseIFp + Math.floor(aIFp * rIFp / PROGRESS_SCALE));
 
             const randI = Math.floor(secureRandom() * P_SCALE);
 
