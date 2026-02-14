@@ -1,0 +1,239 @@
+const { RTPPhase1, MONEY_SCALE, RTP_SCALE, TIER_CONFIG, P_SCALE } = require('../src/modules/RTPPhase1');
+
+const PASS = 'PASS';
+const FAIL = 'FAIL';
+let failures = 0;
+
+function check(name, condition, detail) {
+    const status = condition ? PASS : FAIL;
+    if (!condition) failures++;
+    console.log(`  [${status}] ${name}${detail ? ' — ' + detail : ''}`);
+    return condition;
+}
+
+console.log('=== RTP Phase 1 Smoke Test ===\n');
+
+console.log('--- T1: Static Config Verification ---');
+const expectedConfig = {
+    1: { rtpTierFp: 9000, n1Fp: 6000, rewardFp: 4500 },
+    2: { rtpTierFp: 9200, n1Fp: 10000, rewardFp: 7666 },
+    3: { rtpTierFp: 9300, n1Fp: 16000, rewardFp: 12400 },
+    4: { rtpTierFp: 9400, n1Fp: 30000, rewardFp: 23500 },
+    5: { rtpTierFp: 9450, n1Fp: 45000, rewardFp: 35437 },
+    6: { rtpTierFp: 9500, n1Fp: 120000, rewardFp: 95000 }
+};
+for (let t = 1; t <= 6; t++) {
+    const cfg = TIER_CONFIG[t];
+    const exp = expectedConfig[t];
+    check(`Tier ${t} rtpTierFp`, cfg.rtpTierFp === exp.rtpTierFp, `${cfg.rtpTierFp} == ${exp.rtpTierFp}`);
+    check(`Tier ${t} n1Fp`, cfg.n1Fp === exp.n1Fp, `${cfg.n1Fp} == ${exp.n1Fp}`);
+    check(`Tier ${t} rewardFp`, cfg.rewardFp === exp.rewardFp, `${cfg.rewardFp} == ${exp.rewardFp}`);
+}
+
+console.log('\n--- T2: Single-Target Hard Pity (T1, 1x weapon) ---');
+{
+    const rtp = new RTPPhase1();
+    const costFp = 1 * MONEY_SCALE;
+    let killed = false;
+    let shotCount = 0;
+    for (let i = 0; i < 20; i++) {
+        shotCount++;
+        const result = rtp.handleSingleTargetHit('pity-test', 'fish-1', costFp, 1);
+        if (result.kill) {
+            killed = true;
+            break;
+        }
+    }
+    check('T1 pity kills within 20 shots', killed, `killed at shot ${shotCount}`);
+    check('T1 pity kills at or before N1=6', shotCount <= 6, `shot ${shotCount} <= 6`);
+}
+
+console.log('\n--- T3: Soft Gate (low budget -> low P) ---');
+{
+    const rtp = new RTPPhase1();
+    const costFp = 1 * MONEY_SCALE;
+    const result = rtp.handleSingleTargetHit('gate-test', 'fish-2', costFp, 6);
+    check('T6 first shot low P (soft gate)', result.reason === 'roll_failed' || result.kill, `reason=${result.reason}`);
+    const state = rtp.getState('gate-test', 'fish-2');
+    check('per-fish budget >= 0 after first hit', state.budgetRemainingFp >= 0, `budget=${state.budgetRemainingFp}`);
+}
+
+console.log('\n--- T4: Multi-Target Budget Conservation (per-fish) ---');
+{
+    const rtp = new RTPPhase1();
+    const weaponCostFp = 5 * MONEY_SCALE;
+    const hitList = [
+        { fishId: 'mt-1', tier: 1, distance: 10 },
+        { fishId: 'mt-2', tier: 2, distance: 20 },
+        { fishId: 'mt-3', tier: 3, distance: 30 }
+    ];
+    const results = rtp.handleMultiTargetHit('mt-test', hitList, weaponCostFp, 'aoe');
+    check('Multi-target returns 3 results', results.length === 3, `got ${results.length}`);
+
+    const n = hitList.length;
+    const rawWeights = hitList.map(h => Math.floor(1000000 / Math.max(h.distance, 1)));
+    const rawSum = rawWeights.reduce((a, b) => a + b, 0);
+    const weightsFp = [];
+    let wSum = 0;
+    for (let i = 0; i < n - 1; i++) {
+        weightsFp[i] = Math.floor(rawWeights[i] * 1000000 / rawSum);
+        wSum += weightsFp[i];
+    }
+    weightsFp[n - 1] = 1000000 - wSum;
+
+    let rtpWeightedFp = 0;
+    for (let i = 0; i < n; i++) {
+        rtpWeightedFp += Math.floor(weightsFp[i] * TIER_CONFIG[hitList[i].tier].rtpTierFp / 1000000);
+    }
+    const expectedBudgetTotal = Math.floor(weaponCostFp * rtpWeightedFp / 10000);
+
+    let totalBudgetAccum = 0;
+    let totalKillReward = 0;
+    for (let i = 0; i < n; i++) {
+        const state = rtp.getState('mt-test', hitList[i].fishId);
+        if (state) totalBudgetAccum += state.budgetRemainingFp;
+        if (results[i].kill) totalKillReward += results[i].rewardFp;
+    }
+    const expectedNet = expectedBudgetTotal - totalKillReward;
+    check('Per-fish budget conservation', totalBudgetAccum === expectedNet,
+        `sum=${totalBudgetAccum}, expected=${expectedNet} (budget=${expectedBudgetTotal}, rewards=${totalKillReward})`);
+}
+
+console.log('\n--- T5: RTP Convergence (300k shots per tier, 1x weapon) ---');
+for (let tier = 1; tier <= 6; tier++) {
+    const rtp = new RTPPhase1();
+    const costFp = 1 * MONEY_SCALE;
+    const costReal = 1;
+    let totalSpent = 0;
+    let totalReward = 0;
+    let fishCounter = 0;
+
+    for (let shot = 0; shot < 300000; shot++) {
+        totalSpent += costReal;
+        const fishId = `conv-${tier}-${fishCounter}`;
+        const result = rtp.handleSingleTargetHit(`conv-${tier}`, fishId, costFp, tier);
+        if (result.kill) {
+            totalReward += result.reward;
+            fishCounter++;
+        }
+    }
+
+    const actualRtp = totalSpent > 0 ? (totalReward / totalSpent * 100) : 0;
+    const tierRtp = TIER_CONFIG[tier].rtpTierFp / 100;
+    const tolerance = 1.0;
+    const inRange = actualRtp >= tierRtp - tolerance && actualRtp <= tierRtp + tolerance;
+    check(`Tier ${tier} RTP convergence`, inRange,
+        `actual=${actualRtp.toFixed(2)}%, target=${tierRtp.toFixed(2)}% +/-${tolerance}%`);
+}
+
+console.log('\n--- T6: Per-fish debt bounded at -reward_fp ---');
+{
+    const rtp = new RTPPhase1();
+    const costFp = 1 * MONEY_SCALE;
+    let worstDebt = 0;
+    let debtExceeded = false;
+    let fishCounter = 0;
+
+    for (let shot = 0; shot < 10000; shot++) {
+        const fishId = `debt-${fishCounter}`;
+        const result = rtp.handleSingleTargetHit('debt-test', fishId, costFp, 1);
+        if (result.kill) {
+            const debtFloor = -TIER_CONFIG[1].rewardFp;
+            if (result.state.budgetRemainingFp < debtFloor) debtExceeded = true;
+            if (result.state.budgetRemainingFp < worstDebt) worstDebt = result.state.budgetRemainingFp;
+            fishCounter++;
+        }
+    }
+    check('per-fish debt >= -reward_fp', !debtExceeded, `worst debt=${worstDebt}`);
+}
+
+console.log('\n--- T6b: Multi-fish isolation (no cross-fish coupling) ---');
+{
+    const rtp = new RTPPhase1();
+    const costFp = 1 * MONEY_SCALE;
+
+    for (let shot = 0; shot < 50; shot++) {
+        rtp.handleSingleTargetHit('iso-player', 'fishA', costFp, 1);
+    }
+    const stateA = rtp.getState('iso-player', 'fishA');
+    const aKilled = stateA.killed;
+
+    const stateBBefore = rtp.getState('iso-player', 'fishB');
+    check('fishB has no state before any hit', stateBBefore === null, `${stateBBefore}`);
+
+    const resultB1 = rtp.handleSingleTargetHit('iso-player', 'fishB', costFp, 1);
+    const stateBAfter = rtp.getState('iso-player', 'fishB');
+    check('fishB budget == 1-shot budget only', stateBAfter.budgetRemainingFp === Math.floor(costFp * 9000 / 10000),
+        `budget=${stateBAfter.budgetRemainingFp}, expected=${Math.floor(costFp * 9000 / 10000)}`);
+    check('fishA kill does not affect fishB budget', stateBAfter.sumCostFp === costFp,
+        `sumCost=${stateBAfter.sumCostFp}`);
+}
+
+console.log('\n--- T6c: Multi-fish isolation + pityComp (per-fish state with compensation) ---');
+{
+    const rtp = new RTPPhase1();
+    const costFp = 1 * MONEY_SCALE;
+    const SHOTS = 50000;
+
+    let rewardA = 0, spentA = 0, fishA = 0;
+    let rewardB = 0, spentB = 0, fishB = 0;
+
+    for (let shot = 0; shot < SHOTS; shot++) {
+        spentA += 1;
+        const rA = rtp.handleSingleTargetHit('iso2', `fA-${fishA}`, costFp, 6);
+        if (rA.kill) { rewardA += rA.reward; fishA++; }
+
+        spentB += 1;
+        const rB = rtp.handleSingleTargetHit('iso2', `fB-${fishB}`, costFp, 1);
+        if (rB.kill) { rewardB += rB.reward; fishB++; }
+    }
+
+    const rtpA = spentA > 0 ? (rewardA / spentA * 100) : 0;
+    const rtpB = spentB > 0 ? (rewardB / spentB * 100) : 0;
+    const targetA = TIER_CONFIG[6].rtpTierFp / 100;
+    const targetB = TIER_CONFIG[1].rtpTierFp / 100;
+    const tolIso = 2.0;
+    check('T6 fishA RTP unaffected by T1 fishB', rtpA >= targetA - tolIso && rtpA <= targetA + tolIso,
+        `actual=${rtpA.toFixed(2)}%, target=${targetA.toFixed(2)}% +/-${tolIso}%`);
+    check('T1 fishB RTP unaffected by T6 fishA', rtpB >= targetB - tolIso && rtpB <= targetB + tolIso,
+        `actual=${rtpB.toFixed(2)}%, target=${targetB.toFixed(2)}% +/-${tolIso}%`);
+
+    const stateALast = rtp.getState('iso2', `fA-${fishA}`);
+    const stateBLast = rtp.getState('iso2', `fB-${fishB}`);
+    if (stateALast && stateBLast) {
+        check('fishA budget independent of fishB', stateALast.sumCostFp <= TIER_CONFIG[6].n1Fp,
+            `fishA sumCost=${stateALast.sumCostFp}`);
+        check('fishB budget independent of fishA', stateBLast.sumCostFp <= TIER_CONFIG[1].n1Fp,
+            `fishB sumCost=${stateBLast.sumCostFp}`);
+    }
+}
+
+console.log('\n--- T7: Laser Weapon Config (single fire event) ---');
+{
+    const { WEAPONS } = require('../fish3DGameEngine');
+    const laser = WEAPONS['8x'];
+    check('8x type is laser', laser.type === 'laser', `type=${laser.type}`);
+    check('8x cost is 8', laser.cost === 8, `cost=${laser.cost}`);
+    check('8x maxTargets is 6', laser.maxTargets === 6, `maxTargets=${laser.maxTargets}`);
+}
+
+console.log('\n--- T8: Fish Species Count (SSOT = 20) ---');
+{
+    const { FISH_SPECIES } = require('../fish3DGameEngine');
+    const count = Object.keys(FISH_SPECIES).length;
+    check('Fish species count == 20', count === 20, `count=${count}`);
+
+    const tierCounts = {};
+    for (const fish of Object.values(FISH_SPECIES)) {
+        tierCounts[fish.tier] = (tierCounts[fish.tier] || 0) + 1;
+    }
+    check('T6 count == 2 (boss)', tierCounts[6] === 2, `${tierCounts[6]}`);
+    check('T5 count == 3 (rare)', tierCounts[5] === 3, `${tierCounts[5]}`);
+    check('T4 count == 3 (large)', tierCounts[4] === 3, `${tierCounts[4]}`);
+    check('T3 count == 3 (medium)', tierCounts[3] === 3, `${tierCounts[3]}`);
+    check('T2 count == 3 (common)', tierCounts[2] === 3, `${tierCounts[2]}`);
+    check('T1 count == 6 (small)', tierCounts[1] === 6, `${tierCounts[1]}`);
+}
+
+console.log(`\n=== Summary: ${failures === 0 ? 'ALL PASSED' : failures + ' FAILURE(S)'} ===`);
+process.exit(failures > 0 ? 1 : 0);
