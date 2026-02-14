@@ -111,8 +111,14 @@ const FISH_SPECIES = {
         speed: 50, size: 85, spawnWeight: 1.5,
         color: 0x556677, movementPattern: 'sShape'
     },
+    goldenDragon: {
+        id: 23, name: 'Golden Dragon Fish', category: 'rare', tier: 5,
+        health: 500, hpRange: [400, 600], multiplier: 472, rewardRange: [378, 567],
+        speed: 55, size: 75, spawnWeight: 1,
+        color: 0xffcc00, movementPattern: 'sShape'
+    },
     
-    // ==================== TIER 4: LARGE (10% spawn rate, HP 200-300, 94% RTP) ====================
+    // ==================== TIER 4:LARGE (10% spawn rate, HP 200-300, 94% RTP) ====================
     yellowfinTuna: {
         id: 5, name: 'Yellowfin Tuna', category: 'large', tier: 4,
         health: 250, hpRange: [200, 300], multiplier: 235, rewardRange: [188, 282],
@@ -941,8 +947,20 @@ class Fish3DGameEngine {
                 continue;
             }
             
-            for (const { fishId, fish, distToFish } of fishHitThisTick) {
-                if (penetrationCount >= maxPenetrations) break;
+            if (isLaser && fishHitThisTick.length > 0) {
+                const trimmed = fishHitThisTick.slice(0, maxPenetrations);
+                const hitList = trimmed.map((h, idx) => ({
+                    fishId: h.fishId,
+                    tier: h.fish.tier,
+                    distance: h.distToFish
+                }));
+                
+                const results = this.rtpEngine.handleMultiTargetHit(
+                    bullet.ownerSocketId,
+                    hitList,
+                    bullet.cost * MONEY_SCALE,
+                    'laser'
+                );
                 
                 const shooter = this.players.get(bullet.ownerSocketId);
                 if (shooter) {
@@ -950,77 +968,72 @@ class Fish3DGameEngine {
                     anomalyDetector.recordHit(bullet.ownerSocketId, bullet.weapon);
                 }
                 
-                if (!bullet.fishAlreadyHit) bullet.fishAlreadyHit = new Set();
-                bullet.fishAlreadyHit.add(fishId);
-                penetrationCount++;
-                bullet.penetrationCount = penetrationCount;
-                
-                const currentCost = fish.costByPlayer.get(bullet.ownerSocketId) || 0;
-                fish.costByPlayer.set(bullet.ownerSocketId, currentCost + bullet.cost);
-                
-                fish.lastHitBy = bullet.ownerSocketId;
-                
-                if (isLaser) {
-                    const hitList = [{
-                        fishId,
-                        tier: fish.tier,
-                        distance: distToFish
-                    }];
+                for (const result of results) {
+                    const hitEntry = trimmed.find(h => h.fishId === result.fishId);
+                    if (!hitEntry) continue;
                     
-                    const results = this.rtpEngine.handleMultiTargetHit(
-                        bullet.ownerSocketId,
-                        hitList,
-                        bullet.cost * MONEY_SCALE,
-                        'laser'
-                    );
+                    if (!bullet.fishAlreadyHit) bullet.fishAlreadyHit = new Set();
+                    bullet.fishAlreadyHit.add(result.fishId);
+                    
+                    const currentCost = hitEntry.fish.costByPlayer.get(bullet.ownerSocketId) || 0;
+                    hitEntry.fish.costByPlayer.set(bullet.ownerSocketId, currentCost + bullet.cost);
+                    hitEntry.fish.lastHitBy = bullet.ownerSocketId;
                     
                     io.to(this.roomCode).emit('fishHit', {
-                        fishId,
+                        fishId: result.fishId,
                         bulletId,
                         damage: 0,
-                        newHealth: fish.health,
-                        maxHealth: fish.maxHealth,
+                        newHealth: hitEntry.fish.health,
+                        maxHealth: hitEntry.fish.maxHealth,
                         hitByPlayerId: shooter ? shooter.playerId : null,
-                        isPenetrating: true,
-                        penetrationIndex: penetrationCount - 1
-                    });
-                    
-                    if (results.length > 0 && results[0].kill) {
-                        this.handleFishKill(fish, bullet, io, results[0]);
-                    }
-                } else {
-                    const costFp = bullet.cost * MONEY_SCALE;
-                    const result = this.rtpEngine.handleSingleTargetHit(
-                        bullet.ownerSocketId,
-                        fishId,
-                        costFp,
-                        fish.tier
-                    );
-                    
-                    io.to(this.roomCode).emit('fishHit', {
-                        fishId,
-                        bulletId,
-                        damage: 0,
-                        newHealth: fish.health,
-                        maxHealth: fish.maxHealth,
-                        hitByPlayerId: shooter ? shooter.playerId : null
+                        isPenetrating: true
                     });
                     
                     if (result.kill) {
-                        this.handleFishKill(fish, bullet, io, result);
+                        this.handleFishKill(hitEntry.fish, bullet, io, result);
                     }
                 }
                 
-                if (!isLaser) {
-                    bullet.hasHit = true;
-                    this.bullets.delete(bulletId);
-                    break;
-                }
-            }
-            
-            if (isLaser && penetrationCount >= maxPenetrations) {
                 bullet.hasHit = true;
                 this.bullets.delete(bulletId);
+                continue;
+            }
+            
+            for (const { fishId, fish, distToFish } of fishHitThisTick) {
+                const shooter = this.players.get(bullet.ownerSocketId);
+                if (shooter) {
+                    shooter.totalHits++;
+                    anomalyDetector.recordHit(bullet.ownerSocketId, bullet.weapon);
+                }
+                
+                const currentCost = fish.costByPlayer.get(bullet.ownerSocketId) || 0;
+                fish.costByPlayer.set(bullet.ownerSocketId, currentCost + bullet.cost);
+                fish.lastHitBy = bullet.ownerSocketId;
+                
+                const costFp = bullet.cost * MONEY_SCALE;
+                const result = this.rtpEngine.handleSingleTargetHit(
+                    bullet.ownerSocketId,
+                    fishId,
+                    costFp,
+                    fish.tier
+                );
+                
+                io.to(this.roomCode).emit('fishHit', {
+                    fishId,
+                    bulletId,
+                    damage: 0,
+                    newHealth: fish.health,
+                    maxHealth: fish.maxHealth,
+                    hitByPlayerId: shooter ? shooter.playerId : null
+                });
+                
+                if (result.kill) {
+                    this.handleFishKill(fish, bullet, io, result);
+                }
+                
+                bullet.hasHit = true;
+                this.bullets.delete(bulletId);
+                break;
             }
         }
     }

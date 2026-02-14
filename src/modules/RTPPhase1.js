@@ -25,20 +25,23 @@ const N1_VALUES = {
     6: 120
 };
 
-function computeRewardFp(tier) {
-    const n1 = N1_VALUES[tier];
-    const rtpTierFp = RTP_TIER_FP[tier];
-    return Math.floor(n1 * MONEY_SCALE * rtpTierFp / (RTP_SCALE * K));
-}
+const REWARD_FP = {
+    1: 4500,
+    2: 7583,
+    3: 12266,
+    4: 23250,
+    5: 35250,
+    6: 95000
+};
 
-const TIER_CONFIG = {};
-for (let t = 1; t <= 6; t++) {
-    TIER_CONFIG[t] = {
-        rtpTierFp: RTP_TIER_FP[t],
-        n1Fp: N1_VALUES[t] * MONEY_SCALE,
-        rewardFp: computeRewardFp(t)
-    };
-}
+const TIER_CONFIG = {
+    1: { rtpTierFp: 9000, n1Fp: 6000, rewardFp: 4500 },
+    2: { rtpTierFp: 9100, n1Fp: 10000, rewardFp: 7583 },
+    3: { rtpTierFp: 9200, n1Fp: 16000, rewardFp: 12266 },
+    4: { rtpTierFp: 9300, n1Fp: 30000, rewardFp: 23250 },
+    5: { rtpTierFp: 9400, n1Fp: 45000, rewardFp: 35250 },
+    6: { rtpTierFp: 9500, n1Fp: 120000, rewardFp: 95000 }
+};
 
 const AOE_MAX_TARGETS = 8;
 const LASER_MAX_TARGETS = 6;
