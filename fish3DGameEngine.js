@@ -19,6 +19,8 @@ const { RoomSeedManager } = require('./src/modules/SeedCommitment');
 const { ReceiptChain, createFishDeathReceipt } = require('./src/modules/AuditReceipt');
 // M4: Anomaly detection for hit rate tracking
 const { anomalyDetector } = require('./src/modules/AnomalyDetector');
+// RTP Phase 1: Probabilistic kill system
+const { RTPPhase1, MONEY_SCALE, TIER_CONFIG } = require('./src/modules/RTPPhase1');
 
 /**
  * Seeded Random Number Generator (Mulberry32)
@@ -108,12 +110,6 @@ const FISH_SPECIES = {
         health: 550, hpRange: [400, 600], multiplier: 520, rewardRange: [378, 567],
         speed: 50, size: 85, spawnWeight: 1.5,
         color: 0x556677, movementPattern: 'sShape'
-    },
-    goldenDragon: {
-        id: 23, name: 'Golden Dragon Fish', category: 'rare', tier: 5,
-        health: 600, hpRange: [400, 600], multiplier: 567, rewardRange: [378, 567],
-        speed: 70, size: 75, spawnWeight: 1, isSpecial: true, specialType: 'golden',
-        color: 0xffd700, movementPattern: 'elegantGlide'
     },
     
     // ==================== TIER 4: LARGE (10% spawn rate, HP 200-300, 94% RTP) ====================
@@ -214,31 +210,16 @@ const FISH_SPECIES = {
         color: 0xffaa44, movementPattern: 'verticalDrift'
     },
     
-    // ==================== SPECIAL ABILITY FISH ====================
-    bombCrab: {
-        id: 21, name: 'Bomb Crab', category: 'special', tier: 3,
-        health: 100, hpRange: [80, 120], multiplier: 0, rewardRange: [0, 0],
-        speed: 30, size: 35, spawnWeight: 2, isSpecial: true, specialType: 'bomb',
-        color: 0xff4400, movementPattern: 'slowRotation',
-        explosionRadius: 15, explosionDamage: 50
-    },
-    electricEel: {
-        id: 22, name: 'Electric Eel', category: 'special', tier: 3,
-        health: 120, hpRange: [100, 150], multiplier: 112, rewardRange: [93, 140],
-        speed: 50, size: 50, spawnWeight: 1.5, isSpecial: true, specialType: 'chain',
-        color: 0x00ffff, movementPattern: 'snakeWave',
-        chainTargets: 3, chainDamage: 30
-    }
 };
 
 // Calculate total spawn weight
 const TOTAL_SPAWN_WEIGHT = Object.values(FISH_SPECIES).reduce((sum, fish) => sum + fish.spawnWeight, 0);
 
 const WEAPONS = {
-    '1x': { multiplier: 1, cost: 1, cooldown: 200, damage: 1, rtp: 0.91, features: [] },
-    '3x': { multiplier: 3, cost: 3, cooldown: 300, damage: 3, rtp: 0.93, features: [] },
-    '5x': { multiplier: 5, cost: 5, cooldown: 400, damage: 5, rtp: 0.94, features: [] },
-    '8x': { multiplier: 8, cost: 8, cooldown: 500, damage: 8, rtp: 0.95, features: [] }
+    '1x': { multiplier: 1, cost: 1, cooldown: 200, damage: 1, type: 'projectile', features: [] },
+    '3x': { multiplier: 3, cost: 3, cooldown: 300, damage: 3, type: 'spread', pellets: 3, pelletCost: 1, features: [] },
+    '5x': { multiplier: 5, cost: 5, cooldown: 400, damage: 5, type: 'rocket', aoeRadius: 15, maxTargets: 8, features: [] },
+    '8x': { multiplier: 8, cost: 8, cooldown: 500, damage: 8, type: 'laser', maxTargets: 6, features: ['penetrating'] }
 };
 
 const PENETRATING_DAMAGE_MULTIPLIERS = [1.0, 0.8, 0.6, 0.4, 0.2];
@@ -263,6 +244,9 @@ class Fish3DGameEngine {
         
         // M2: Finisher pool config (0% for single-player per DEC-M2-002)
         this.finisherPoolPercent = 0;
+        
+        // RTP Phase 1: Probabilistic kill settlement
+        this.rtpEngine = new RTPPhase1();
         
         // Player management (max 4 players)
         this.players = new Map(); // socketId -> player data
@@ -396,6 +380,7 @@ class Fish3DGameEngine {
         const player = this.players.get(socketId);
         if (player) {
             console.log(`[FISH3D-ENGINE] Player ${player.playerId} left`);
+            this.rtpEngine.clearPlayerStates(socketId);
             this.players.delete(socketId);
         }
     }
@@ -532,12 +517,12 @@ class Fish3DGameEngine {
             lastHitBy: null,
             damageByPlayer: new Map(),
             costByPlayer: new Map(),
-            rtpWeightedCostByPlayer: new Map(),
+            
+            // RTP Phase 1 tier
+            tier: fishType.tier,
             
             // Flags
             isBoss: fishType.isBoss || false,
-            isSpecial: fishType.isSpecial || false,
-            specialType: fishType.specialType || null,
             isAlive: true,
             
             // M3: Seed commitment data
@@ -570,12 +555,10 @@ class Fish3DGameEngine {
         const now = Date.now();
         const weapon = WEAPONS[player.currentWeapon];
         
-        // Check cooldown
         if (now - player.lastShotTime < weapon.cooldown) {
             return null;
         }
         
-        // Check balance
         if (player.balance < weapon.cost) {
             io.to(socketId).emit('insufficientBalance', {
                 required: weapon.cost,
@@ -584,70 +567,115 @@ class Fish3DGameEngine {
             return null;
         }
         
-        // Deduct cost
         player.balance -= weapon.cost;
         player.lastShotTime = now;
         player.totalShots++;
         
-        // Calculate bullet direction from cannon position to target
         const dx = targetX - player.cannonX;
         const dz = targetZ - player.cannonZ;
         const distance = Math.sqrt(dx * dx + dz * dz);
         
-        if (distance < 0.1) return null; // Target too close to cannon
+        if (distance < 0.1) return null;
         
         const normalizedDx = dx / distance;
         const normalizedDz = dz / distance;
         
-        // Update cannon rotation based on direction
         player.cannonYaw = Math.atan2(normalizedDx, -normalizedDz);
         
-        const bulletId = this.nextBulletId++;
-        const bullet = {
-            bulletId,
-            ownerId: player.playerId,
-            ownerSocketId: socketId,
-            weapon: player.currentWeapon,
-            damage: weapon.damage,
-            cost: weapon.cost,
+        const bullets = [];
+        
+        if (weapon.type === 'spread') {
+            const spreadAngle = 15 * (Math.PI / 180);
+            const pelletOffsets = [0, spreadAngle, -spreadAngle];
             
-            x: player.cannonX,
-            z: player.cannonZ,
-            prevX: player.cannonX,
-            prevZ: player.cannonZ,
-            velocityX: normalizedDx * this.BULLET_SPEED,
-            velocityZ: normalizedDz * this.BULLET_SPEED,
-            rotation: player.cannonYaw,
+            for (let i = 0; i < weapon.pellets; i++) {
+                const angle = pelletOffsets[i];
+                const cos = Math.cos(angle);
+                const sin = Math.sin(angle);
+                const pdx = normalizedDx * cos - normalizedDz * sin;
+                const pdz = normalizedDx * sin + normalizedDz * cos;
+                
+                const bulletId = this.nextBulletId++;
+                const pellet = {
+                    bulletId,
+                    ownerId: player.playerId,
+                    ownerSocketId: socketId,
+                    weapon: player.currentWeapon,
+                    damage: 1,
+                    cost: weapon.pelletCost,
+                    pelletIndex: i,
+                    
+                    x: player.cannonX,
+                    z: player.cannonZ,
+                    prevX: player.cannonX,
+                    prevZ: player.cannonZ,
+                    velocityX: pdx * this.BULLET_SPEED,
+                    velocityZ: pdz * this.BULLET_SPEED,
+                    rotation: Math.atan2(pdx, -pdz),
+                    
+                    spawnTime: now,
+                    hasHit: false
+                };
+                
+                this.bullets.set(bulletId, pellet);
+                bullets.push(pellet);
+                
+                io.to(this.roomCode).emit('bulletSpawned', {
+                    bulletId,
+                    ownerId: player.playerId,
+                    weapon: player.currentWeapon,
+                    x: pellet.x,
+                    z: pellet.z,
+                    velocityX: pellet.velocityX,
+                    velocityZ: pellet.velocityZ,
+                    rotation: pellet.rotation,
+                    pelletIndex: i
+                });
+            }
+        } else {
+            const bulletId = this.nextBulletId++;
+            const bullet = {
+                bulletId,
+                ownerId: player.playerId,
+                ownerSocketId: socketId,
+                weapon: player.currentWeapon,
+                damage: weapon.damage,
+                cost: weapon.cost,
+                
+                x: player.cannonX,
+                z: player.cannonZ,
+                prevX: player.cannonX,
+                prevZ: player.cannonZ,
+                velocityX: normalizedDx * this.BULLET_SPEED,
+                velocityZ: normalizedDz * this.BULLET_SPEED,
+                rotation: player.cannonYaw,
+                
+                spawnTime: now,
+                hasHit: false
+            };
             
-            spawnTime: now,
-            hasHit: false
-        };
+            this.bullets.set(bulletId, bullet);
+            bullets.push(bullet);
+            
+            io.to(this.roomCode).emit('bulletSpawned', {
+                bulletId,
+                ownerId: player.playerId,
+                weapon: player.currentWeapon,
+                x: bullet.x,
+                z: bullet.z,
+                velocityX: bullet.velocityX,
+                velocityZ: bullet.velocityZ,
+                rotation: bullet.rotation
+            });
+        }
         
-        this.bullets.set(bulletId, bullet);
-        
-        // Debug logging for collision detection
-        console.log(`[FISH3D-ENGINE] SHOOT: room=${this.roomCode} bulletId=${bulletId} from=(${player.cannonX.toFixed(1)},${player.cannonZ.toFixed(1)}) target=(${targetX.toFixed(1)},${targetZ.toFixed(1)}) dir=(${normalizedDx.toFixed(3)},${normalizedDz.toFixed(3)}) vel=(${bullet.velocityX.toFixed(1)},${bullet.velocityZ.toFixed(1)}) fishCount=${this.fish.size}`);
-        
-        // Broadcast bullet spawn
-        io.to(this.roomCode).emit('bulletSpawned', {
-            bulletId,
-            ownerId: player.playerId,
-            weapon: player.currentWeapon,
-            x: bullet.x,
-            z: bullet.z,
-            velocityX: bullet.velocityX,
-            velocityZ: bullet.velocityZ,
-            rotation: bullet.rotation
-        });
-        
-        // Send balance update to shooter
         io.to(socketId).emit('balanceUpdate', {
             balance: player.balance,
             change: -weapon.cost,
             reason: 'shot'
         });
         
-        return bullet;
+        return bullets.length === 1 ? bullets[0] : bullets;
     }
     
     /**
@@ -832,8 +860,10 @@ class Fish3DGameEngine {
             if (bullet.hasHit) continue;
             
             const weapon = WEAPONS[bullet.weapon];
-            const isPenetrating = weapon && weapon.features && weapon.features.includes('penetrating');
-            const maxPenetrations = isPenetrating ? (weapon.maxPenetrations || 5) : 1;
+            const isLaser = weapon.type === 'laser';
+            const isRocket = weapon.type === 'rocket';
+            const isMultiTarget = isLaser || isRocket;
+            const maxPenetrations = isLaser ? (weapon.maxTargets || 6) : 1;
             let penetrationCount = bullet.penetrationCount || 0;
             
             const fishHitThisTick = [];
@@ -849,15 +879,16 @@ class Fish3DGameEngine {
                     Math.pow(bullet.x - fish.x, 2) + Math.pow(bullet.z - fish.z, 2)
                 );
                 
-                const hit = this.lineCircleIntersection(
-                    bullet.prevX, bullet.prevZ,
-                    bullet.x, bullet.z,
-                    fish.x, fish.z,
-                    combinedRadius
-                );
-                
-                if (distToFish < combinedRadius * 3) {
-                    console.log(`[FISH3D-ENGINE] COLLISION CHECK: bullet=${bulletId} pos=(${bullet.x.toFixed(1)},${bullet.z.toFixed(1)}) fish=${fishId} pos=(${fish.x.toFixed(1)},${fish.z.toFixed(1)}) dist=${distToFish.toFixed(1)} radius=${combinedRadius.toFixed(1)} hit=${hit} penetrating=${isPenetrating}`);
+                let hit = false;
+                if (isRocket) {
+                    hit = distToFish <= (weapon.aoeRadius || 15);
+                } else {
+                    hit = this.lineCircleIntersection(
+                        bullet.prevX, bullet.prevZ,
+                        bullet.x, bullet.z,
+                        fish.x, fish.z,
+                        combinedRadius
+                    );
                 }
                 
                 if (hit) {
@@ -867,7 +898,52 @@ class Fish3DGameEngine {
             
             fishHitThisTick.sort((a, b) => a.distToFish - b.distToFish);
             
-            for (const { fishId, fish } of fishHitThisTick) {
+            if (isRocket && fishHitThisTick.length > 0) {
+                const trimmed = fishHitThisTick.slice(0, weapon.maxTargets || 8);
+                const hitList = trimmed.map(h => ({
+                    fishId: h.fishId,
+                    tier: h.fish.tier,
+                    distance: h.distToFish
+                }));
+                
+                const results = this.rtpEngine.handleMultiTargetHit(
+                    bullet.ownerSocketId,
+                    hitList,
+                    bullet.cost * MONEY_SCALE,
+                    'aoe'
+                );
+                
+                const shooter = this.players.get(bullet.ownerSocketId);
+                if (shooter) {
+                    shooter.totalHits++;
+                    anomalyDetector.recordHit(bullet.ownerSocketId, bullet.weapon);
+                }
+                
+                for (const result of results) {
+                    const hitEntry = trimmed.find(h => h.fishId === result.fishId);
+                    if (!hitEntry) continue;
+                    
+                    io.to(this.roomCode).emit('fishHit', {
+                        fishId: result.fishId,
+                        bulletId,
+                        damage: 0,
+                        newHealth: hitEntry.fish.health,
+                        maxHealth: hitEntry.fish.maxHealth,
+                        hitByPlayerId: shooter ? shooter.playerId : null,
+                        isAOE: true
+                    });
+                    
+                    if (result.kill) {
+                        this.handleFishKill(hitEntry.fish, bullet, io, result);
+                    }
+                }
+                
+                bullet.hasHit = true;
+                this.bullets.delete(bulletId);
+                continue;
+            }
+            
+            for (const { fishId, fish, distToFish } of fishHitThisTick) {
                 if (penetrationCount >= maxPenetrations) break;
                 
                 const shooter = this.players.get(bullet.ownerSocketId);
@@ -881,141 +957,105 @@ class Fish3DGameEngine {
                 penetrationCount++;
                 bullet.penetrationCount = penetrationCount;
                 
-                // Track cost spent on this fish for RTP calculation
                 const currentCost = fish.costByPlayer.get(bullet.ownerSocketId) || 0;
-                fish.costByPlayer.set(bullet.ownerSocketId, currentCost + weapon.cost);
+                fish.costByPlayer.set(bullet.ownerSocketId, currentCost + bullet.cost);
                 
-                // Track RTP-weighted cost (cost * weapon.rtp) for reward calculation
-                const currentRtpWeightedCost = fish.rtpWeightedCostByPlayer.get(bullet.ownerSocketId) || 0;
-                fish.rtpWeightedCostByPlayer.set(bullet.ownerSocketId, currentRtpWeightedCost + (weapon.cost * weapon.rtp));
-                
-                // Apply damage
-                const damageMultiplier = isPenetrating ? PENETRATING_DAMAGE_MULTIPLIERS[penetrationCount - 1] : 1.0;
-                const damage = Math.floor(bullet.damage * damageMultiplier);
-                fish.health -= damage;
                 fish.lastHitBy = bullet.ownerSocketId;
                 
-                const currentDamage = fish.damageByPlayer.get(bullet.ownerSocketId) || 0;
-                fish.damageByPlayer.set(bullet.ownerSocketId, currentDamage + damage);
-                
-                io.to(this.roomCode).emit('fishHit', {
-                    fishId,
-                    bulletId,
-                    damage,
-                    newHealth: fish.health,
-                    maxHealth: fish.maxHealth,
-                    hitByPlayerId: shooter ? shooter.playerId : null,
-                    isPenetrating,
-                    penetrationIndex: penetrationCount - 1
-                });
-                
-                // Only pay reward when fish dies (HP <= 0)
-                if (fish.health <= 0) {
-                    this.handleFishKill(fish, bullet, io);
+                if (isLaser) {
+                    const hitList = [{
+                        fishId,
+                        tier: fish.tier,
+                        distance: distToFish
+                    }];
+                    
+                    const results = this.rtpEngine.handleMultiTargetHit(
+                        bullet.ownerSocketId,
+                        hitList,
+                        bullet.cost * MONEY_SCALE,
+                        'laser'
+                    );
+                    
+                    io.to(this.roomCode).emit('fishHit', {
+                        fishId,
+                        bulletId,
+                        damage: 0,
+                        newHealth: fish.health,
+                        maxHealth: fish.maxHealth,
+                        hitByPlayerId: shooter ? shooter.playerId : null,
+                        isPenetrating: true,
+                        penetrationIndex: penetrationCount - 1
+                    });
+                    
+                    if (results.length > 0 && results[0].kill) {
+                        this.handleFishKill(fish, bullet, io, results[0]);
+                    }
+                } else {
+                    const costFp = bullet.cost * MONEY_SCALE;
+                    const result = this.rtpEngine.handleSingleTargetHit(
+                        bullet.ownerSocketId,
+                        fishId,
+                        costFp,
+                        fish.tier
+                    );
+                    
+                    io.to(this.roomCode).emit('fishHit', {
+                        fishId,
+                        bulletId,
+                        damage: 0,
+                        newHealth: fish.health,
+                        maxHealth: fish.maxHealth,
+                        hitByPlayerId: shooter ? shooter.playerId : null
+                    });
+                    
+                    if (result.kill) {
+                        this.handleFishKill(fish, bullet, io, result);
+                    }
                 }
                 
-                if (!isPenetrating) {
+                if (!isLaser) {
                     bullet.hasHit = true;
                     this.bullets.delete(bulletId);
                     break;
                 }
             }
             
-            if (isPenetrating && penetrationCount >= maxPenetrations) {
+            if (isLaser && penetrationCount >= maxPenetrations) {
                 bullet.hasHit = true;
                 this.bullets.delete(bulletId);
             }
         }
     }
     
-    /**
-     * Handle fish kill - Cost-based RTP reward system
-     * Reward = sum of (cost * weapon.rtp) for each player's hits on this fish
-     * This guarantees RTP = weapon.rtp regardless of fish HP or multiplier
-     */
-    handleFishKill(fish, bullet, io) {
+    handleFishKill(fish, bullet, io, rtpResult) {
         fish.isAlive = false;
         
-        let totalRtpWeightedCost = 0;
-        for (const [socketId, rtpWeightedCost] of fish.rtpWeightedCostByPlayer) {
-            totalRtpWeightedCost += rtpWeightedCost;
-        }
-        
-        if (totalRtpWeightedCost === 0) {
-            this.fish.delete(fish.fishId);
-            return;
-        }
-        
-        // M2: Apply finisher pool deduction
-        const finisherDeduction = totalRtpWeightedCost * this.finisherPoolPercent;
-        const totalReward = Math.round(totalRtpWeightedCost - finisherDeduction);
+        const killerSocketId = bullet.ownerSocketId;
+        const killer = this.players.get(killerSocketId);
+        const totalReward = rtpResult.reward;
         
         const rewardDistribution = [];
-        let totalDistributed = 0;
         
-        // Distribute rewards to each player based on their RTP-weighted cost
-        const contributors = [];
-        for (const [socketId, rtpWeightedCost] of fish.rtpWeightedCostByPlayer) {
-            const player = this.players.get(socketId);
-            if (player && rtpWeightedCost > 0) {
-                const cost = fish.costByPlayer.get(socketId) || 0;
-                contributors.push({ 
-                    socketId, 
-                    player, 
-                    cost,
-                    rtpWeightedCost,
-                    percent: rtpWeightedCost / totalRtpWeightedCost 
-                });
-            }
-        }
-        
-        contributors.sort((a, b) => b.rtpWeightedCost - a.rtpWeightedCost);
-        
-        for (let i = 0; i < contributors.length; i++) {
-            const { socketId, player, cost, rtpWeightedCost, percent } = contributors[i];
-            let playerReward;
-            // Last player gets remainder to avoid rounding errors
-            if (i === contributors.length - 1) {
-                playerReward = totalReward - totalDistributed;
-            } else {
-                playerReward = Math.floor(totalReward * percent);
-            }
-            totalDistributed += playerReward;
+        if (killer && totalReward > 0) {
+            killer.balance += totalReward;
+            killer.score += totalReward;
+            killer.totalKills++;
             
-            if (playerReward > 0) {
-                player.balance += playerReward;
-                player.score += playerReward;
-                
-                rewardDistribution.push({
-                    playerId: player.playerId,
-                    socketId: socketId,
-                    cost: cost,
-                    percent: Math.round(percent * 100),
-                    reward: playerReward
-                });
-                
-                io.to(socketId).emit('balanceUpdate', {
-                    balance: player.balance,
-                    change: playerReward,
-                    reason: 'fishKill',
-                    fishType: fish.typeName,
-                    contributionPercent: Math.round(percent * 100)
-                });
-            }
-        }
-        
-        // Find top contributor for kill credit
-        let topContributor = null;
-        let maxCost = 0;
-        for (const [socketId, cost] of fish.costByPlayer) {
-            if (cost > maxCost) {
-                maxCost = cost;
-                topContributor = this.players.get(socketId);
-            }
-        }
-        
-        if (topContributor) {
-            topContributor.totalKills++;
+            rewardDistribution.push({
+                playerId: killer.playerId,
+                socketId: killerSocketId,
+                cost: fish.costByPlayer.get(killerSocketId) || 0,
+                percent: 100,
+                reward: totalReward
+            });
+            
+            io.to(killerSocketId).emit('balanceUpdate', {
+                balance: killer.balance,
+                change: totalReward,
+                reason: 'fishKill',
+                fishType: fish.typeName,
+                killEventId: rtpResult.killEventId
+            });
         }
         
         if (fish.isBoss) {
@@ -1027,23 +1067,23 @@ class Fish3DGameEngine {
             this.killsSinceLastBoss++;
         }
         
-        // M6/M3: Include rules hash and seed commitment in kill event
         const rulesHash = this.configHashManager ? this.configHashManager.getHash() : null;
         const rulesVersion = this.configHashManager ? this.configHashManager.getVersion() : null;
         
         io.to(this.roomCode).emit('fishKilled', {
             fishId: fish.fishId,
             typeName: fish.typeName,
-            topContributorId: topContributor ? topContributor.playerId : null,
+            topContributorId: killer ? killer.playerId : null,
             totalReward: totalReward,
             rewardDistribution: rewardDistribution,
             isBoss: fish.isBoss,
             position: { x: fish.x, z: fish.z },
             seedCommitment: fish.seedCommitment,
-            rulesHash: rulesHash
+            rulesHash: rulesHash,
+            killEventId: rtpResult.killEventId,
+            killReason: rtpResult.reason
         });
         
-        // M5: Generate audit receipt for this fish death
         const receipt = createFishDeathReceipt(
             fish,
             rewardDistribution,
@@ -1054,55 +1094,8 @@ class Fish3DGameEngine {
         );
         this.receiptChain.addReceipt(receipt);
         
-        if (fish.isSpecial && fish.specialType === 'bomb' && topContributor) {
-            this.handleBombExplosion(fish, topContributor, io);
-        }
-        
+        this.rtpEngine.clearFishStates(fish.fishId);
         this.fish.delete(fish.fishId);
-    }
-    
-    /**
-     * Handle bomb crab explosion
-     */
-    handleBombExplosion(bombFish, killer, io) {
-        const explosionRadius = 15; // 2D radius
-        const explosionDamage = 30;
-        
-        const affectedFish = [];
-        
-        for (const [fishId, fish] of this.fish) {
-            if (!fish.isAlive || fishId === bombFish.fishId) continue;
-            
-            const dx = fish.x - bombFish.x;
-            const dz = fish.z - bombFish.z;
-            const distance = Math.sqrt(dx * dx + dz * dz);
-            
-            if (distance <= explosionRadius) {
-                fish.health -= explosionDamage;
-                fish.lastHitBy = killer.socketId;
-                
-                affectedFish.push({
-                    fishId,
-                    newHealth: fish.health,
-                    killed: fish.health <= 0
-                });
-                
-                if (fish.health <= 0) {
-                    // Create a fake bullet for the kill attribution
-                    const fakeBullet = {
-                        weapon: killer.currentWeapon,
-                        ownerSocketId: killer.socketId
-                    };
-                    this.handleFishKill(fish, fakeBullet, io);
-                }
-            }
-        }
-        
-        io.to(this.roomCode).emit('bombExplosion', {
-            position: { x: bombFish.x, z: bombFish.z },
-            radius: explosionRadius,
-            affectedFish
-        });
     }
     
     /**
