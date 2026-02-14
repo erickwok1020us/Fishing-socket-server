@@ -222,7 +222,6 @@ const WEAPONS = {
     '8x': { multiplier: 8, cost: 8, cooldown: 500, damage: 8, type: 'laser', maxTargets: 6, features: ['penetrating'] }
 };
 
-const PENETRATING_DAMAGE_MULTIPLIERS = [1.0, 0.8, 0.6, 0.4, 0.2];
 
 /**
  * 3D Fish Shooting Game Engine
@@ -862,7 +861,6 @@ class Fish3DGameEngine {
             const weapon = WEAPONS[bullet.weapon];
             const isLaser = weapon.type === 'laser';
             const isRocket = weapon.type === 'rocket';
-            const isMultiTarget = isLaser || isRocket;
             const maxPenetrations = isLaser ? (weapon.maxTargets || 6) : 1;
             let penetrationCount = bullet.penetrationCount || 0;
             
