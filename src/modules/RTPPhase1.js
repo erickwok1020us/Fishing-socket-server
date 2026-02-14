@@ -57,7 +57,6 @@ const EPSILON_FP = 1;
 class RTPPhase1 {
     constructor() {
         this.states = new Map();
-        this.playerBudgets = new Map();
     }
 
     _stateKey(playerId, fishId) {
@@ -99,15 +98,6 @@ class RTPPhase1 {
                 this.states.delete(key);
             }
         }
-        this.playerBudgets.delete(playerId);
-    }
-
-    _getPlayerBudget(playerId) {
-        return this.playerBudgets.get(playerId) || 0;
-    }
-
-    _setPlayerBudget(playerId, value) {
-        this.playerBudgets.set(playerId, value);
     }
 
     handleSingleTargetHit(playerId, fishId, weaponCostFp, tier) {
@@ -119,15 +109,14 @@ class RTPPhase1 {
 
         const budgetTotalFp = Math.floor(weaponCostFp * config.rtpTierFp / RTP_SCALE);
 
-        let poolBudget = this._getPlayerBudget(playerId) + budgetTotalFp;
-        this._setPlayerBudget(playerId, poolBudget);
+        state.budgetRemainingFp += budgetTotalFp;
         state.sumCostFp += weaponCostFp;
 
-        if (state.sumCostFp >= config.n1Fp && poolBudget >= config.rewardFp) {
-            return this._executeKillFromPool(state, config, playerId, fishId, 'hard_pity');
+        if (state.sumCostFp >= config.n1Fp && state.budgetRemainingFp >= config.rewardFp) {
+            return this._executeKill(state, config, playerId, fishId, 'hard_pity');
         }
 
-        const effectiveBudget = Math.max(0, poolBudget);
+        const effectiveBudget = Math.max(0, state.budgetRemainingFp);
         const pBaseFp = Math.min(P_SCALE, Math.floor(effectiveBudget * P_SCALE / config.rewardFp));
         const progressFp = Math.floor(state.sumCostFp * PROGRESS_SCALE / config.n1Fp);
         const aFp = Math.floor(pBaseFp / 2);
@@ -136,15 +125,14 @@ class RTPPhase1 {
         const rand = Math.floor(secureRandom() * P_SCALE);
 
         if (rand < pFp) {
-            return this._executeKillFromPool(state, config, playerId, fishId, 'probability');
+            return this._executeKill(state, config, playerId, fishId, 'probability');
         }
 
         return {
             kill: false,
             reason: 'roll_failed',
             pFp,
-            state: this._snapshotState(state),
-            poolBudget
+            state: this._snapshotState(state)
         };
     }
 
@@ -195,8 +183,13 @@ class RTPPhase1 {
 
         const budgetTotalFp = Math.floor(weaponCostFp * rtpWeightedFp / RTP_SCALE);
 
-        let poolBudgetM = this._getPlayerBudget(playerId) + budgetTotalFp;
-        this._setPlayerBudget(playerId, poolBudgetM);
+        const budgetAllocFp = new Array(n);
+        let budgetAllocSum = 0;
+        for (let i = 0; i < n - 1; i++) {
+            budgetAllocFp[i] = Math.floor(budgetTotalFp * weightsFp[i] / WEIGHT_SCALE);
+            budgetAllocSum += budgetAllocFp[i];
+        }
+        budgetAllocFp[n - 1] = budgetTotalFp - budgetAllocSum;
 
         const results = [];
 
@@ -216,15 +209,14 @@ class RTPPhase1 {
 
             const costIFp = Math.floor(weaponCostFp * weightsFp[i] / WEIGHT_SCALE);
             state.sumCostFp += costIFp;
+            state.budgetRemainingFp += budgetAllocFp[i];
 
-            let poolBudget = this._getPlayerBudget(playerId);
-
-            if (state.sumCostFp >= config.n1Fp && poolBudget >= config.rewardFp) {
-                results.push(this._executeKillFromPool(state, config, playerId, entry.fishId, 'hard_pity'));
+            if (state.sumCostFp >= config.n1Fp && state.budgetRemainingFp >= config.rewardFp) {
+                results.push(this._executeKill(state, config, playerId, entry.fishId, 'hard_pity'));
                 continue;
             }
 
-            const effectiveBudget = Math.max(0, poolBudget);
+            const effectiveBudget = Math.max(0, state.budgetRemainingFp);
             const pBaseIFp = Math.min(P_SCALE, Math.floor(effectiveBudget * P_SCALE / config.rewardFp));
             const progressIFp = Math.floor(state.sumCostFp * PROGRESS_SCALE / config.n1Fp);
             const aIFp = Math.floor(pBaseIFp / 2);
@@ -233,7 +225,7 @@ class RTPPhase1 {
             const randI = Math.floor(secureRandom() * P_SCALE);
 
             if (randI < pIFp) {
-                results.push(this._executeKillFromPool(state, config, playerId, entry.fishId, 'probability'));
+                results.push(this._executeKill(state, config, playerId, entry.fishId, 'probability'));
             } else {
                 results.push({ fishId: entry.fishId, kill: false, reason: 'roll_failed', pFp: pIFp });
             }
@@ -242,10 +234,10 @@ class RTPPhase1 {
         return results;
     }
 
-    _executeKillFromPool(state, config, playerId, fishId, reason) {
-        let poolBudget = this._getPlayerBudget(playerId);
-        poolBudget -= config.rewardFp;
-        this._setPlayerBudget(playerId, poolBudget);
+    _executeKill(state, config, playerId, fishId, reason) {
+        // Soft gate: per-fish budget may go into controlled debt (floor >= -reward_fp).
+        // Debt is repaid by future hits on the SAME fish only.
+        state.budgetRemainingFp -= config.rewardFp;
         state.killed = true;
         const killEventId = secureRandomUUID();
         return {
@@ -255,8 +247,7 @@ class RTPPhase1 {
             killEventId,
             rewardFp: config.rewardFp,
             reward: config.rewardFp / MONEY_SCALE,
-            state: this._snapshotState(state),
-            poolBudget
+            state: this._snapshotState(state)
         };
     }
 
@@ -264,7 +255,6 @@ class RTPPhase1 {
         return {
             sumCostFp: state.sumCostFp,
             budgetRemainingFp: state.budgetRemainingFp,
-            pityReached: state.pityReached,
             killed: state.killed
         };
     }
