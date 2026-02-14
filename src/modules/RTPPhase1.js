@@ -41,13 +41,16 @@ const REWARD_FP = {
     6: 95000
 };
 
+// pityCompFp: per-tier pity compensation factor (P_SCALE units).
+// Derived from: solve (1-(1-u/N1)^N1)/u = 1/K for u; pityComp = u/K.
+// This compensates for hard-pity truncation of the geometric distribution.
 const TIER_CONFIG = {
-    1: { rtpTierFp: 9000, n1Fp: 6000, rewardFp: 4500 },
-    2: { rtpTierFp: 9200, n1Fp: 10000, rewardFp: 7666 },
-    3: { rtpTierFp: 9300, n1Fp: 16000, rewardFp: 12400 },
-    4: { rtpTierFp: 9400, n1Fp: 30000, rewardFp: 23500 },
-    5: { rtpTierFp: 9450, n1Fp: 45000, rewardFp: 35437 },
-    6: { rtpTierFp: 9500, n1Fp: 120000, rewardFp: 95000 }
+    1: { rtpTierFp: 9000, n1Fp: 6000, rewardFp: 4500, pityCompFp: 367403 },
+    2: { rtpTierFp: 9200, n1Fp: 10000, rewardFp: 7666, pityCompFp: 343881 },
+    3: { rtpTierFp: 9300, n1Fp: 16000, rewardFp: 12400, pityCompFp: 331913 },
+    4: { rtpTierFp: 9400, n1Fp: 30000, rewardFp: 23500, pityCompFp: 323159 },
+    5: { rtpTierFp: 9450, n1Fp: 45000, rewardFp: 35437, pityCompFp: 319944 },
+    6: { rtpTierFp: 9500, n1Fp: 120000, rewardFp: 95000, pityCompFp: 316012 }
 };
 
 const AOE_MAX_TARGETS = 8;
@@ -116,7 +119,8 @@ class RTPPhase1 {
             return this._executeKill(state, config, playerId, fishId, 'hard_pity');
         }
 
-        const pBaseFp = Math.min(P_SCALE, Math.floor(budgetTotalFp * P_SCALE / config.rewardFp));
+        const pBaseRawFp = Math.min(P_SCALE, Math.floor(budgetTotalFp * P_SCALE / config.rewardFp));
+        const pBaseFp = Math.floor(pBaseRawFp * config.pityCompFp / P_SCALE);
         const progressFp = Math.floor(state.sumCostFp * PROGRESS_SCALE / config.n1Fp);
         const rFp = progressFp <= RAMP_START ? 0
             : Math.min(PROGRESS_SCALE, Math.floor((progressFp - RAMP_START) * PROGRESS_SCALE / (PROGRESS_SCALE - RAMP_START)));
@@ -217,7 +221,8 @@ class RTPPhase1 {
                 continue;
             }
 
-            const pBaseIFp = Math.min(P_SCALE, Math.floor(budgetAllocFp[i] * P_SCALE / config.rewardFp));
+            const pBaseRawIFp = Math.min(P_SCALE, Math.floor(budgetAllocFp[i] * P_SCALE / config.rewardFp));
+            const pBaseIFp = Math.floor(pBaseRawIFp * config.pityCompFp / P_SCALE);
             const progressIFp = Math.floor(state.sumCostFp * PROGRESS_SCALE / config.n1Fp);
             const rIFp = progressIFp <= RAMP_START ? 0
                 : Math.min(PROGRESS_SCALE, Math.floor((progressIFp - RAMP_START) * PROGRESS_SCALE / (PROGRESS_SCALE - RAMP_START)));
