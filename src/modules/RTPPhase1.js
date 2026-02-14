@@ -41,9 +41,12 @@ const REWARD_FP = {
     6: 95000
 };
 
-// pityCompFp: per-tier pity compensation factor (P_SCALE units).
-// Derived from: solve (1-(1-u/N1)^N1)/u = 1/K for u; pityComp = u/K.
-// This compensates for hard-pity truncation of the geometric distribution.
+// ═══════════════════════════════════════════════════════════════════
+// LOCKED CONSTANT: pityCompFp is a static per-tier value (P_SCALE units).
+//   Formula: solve (1-(1-u/N1)^N1)/u = 1/K for u; pityComp = u/K.
+//   Purpose: compensate hard-pity truncation of geometric distribution.
+//   These values are FROZEN. Any change requires a version upgrade.
+// ═══════════════════════════════════════════════════════════════════
 const TIER_CONFIG = {
     1: { rtpTierFp: 9000, n1Fp: 6000, rewardFp: 4500, pityCompFp: 367403 },
     2: { rtpTierFp: 9200, n1Fp: 10000, rewardFp: 7666, pityCompFp: 343881 },

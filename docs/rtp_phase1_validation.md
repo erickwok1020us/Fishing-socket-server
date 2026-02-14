@@ -34,6 +34,10 @@ node docs/rtp_phase1_smoke_test.js
 - P_SCALE = 1000000
 - All arithmetic uses Math.floor (no floating point in settlement path)
 
+### Why pityCompFp is needed
+
+Hard pity at N1 truncates the geometric distribution: ~30% of fish are force-killed at exactly N1 instead of dying naturally. This lowers E[shots] below N1/K, inflating RTP above the tier target. Each tier's `pityCompFp` (LOCKED in TIER_CONFIG) scales P_base down so that E[shots] = N1/K even with truncation. The values are derived once from `(1-(1-u/N1)^N1)/u = 1/K`; they are static constants, not runtime-solved.
+
 ### S1: Model (K=1.2, Hard Pity)
 - reward_fp = static lookup from TIER_CONFIG
 - Hard pity: sum_cost_fp >= N1_fp AND budget_remaining_fp >= reward_fp

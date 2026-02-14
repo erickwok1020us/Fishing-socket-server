@@ -99,7 +99,7 @@ console.log('\n--- T4: Multi-Target Budget Conservation (per-fish) ---');
         `sum=${totalBudgetAccum}, expected=${expectedNet} (budget=${expectedBudgetTotal}, rewards=${totalKillReward})`);
 }
 
-console.log('\n--- T5: RTP Convergence (100k shots per tier, 1x weapon) ---');
+console.log('\n--- T5: RTP Convergence (300k shots per tier, 1x weapon) ---');
 for (let tier = 1; tier <= 6; tier++) {
     const rtp = new RTPPhase1();
     const costFp = 1 * MONEY_SCALE;
@@ -108,7 +108,7 @@ for (let tier = 1; tier <= 6; tier++) {
     let totalReward = 0;
     let fishCounter = 0;
 
-    for (let shot = 0; shot < 100000; shot++) {
+    for (let shot = 0; shot < 300000; shot++) {
         totalSpent += costReal;
         const fishId = `conv-${tier}-${fishCounter}`;
         const result = rtp.handleSingleTargetHit(`conv-${tier}`, fishId, costFp, tier);
@@ -167,6 +167,45 @@ console.log('\n--- T6b: Multi-fish isolation (no cross-fish coupling) ---');
         `budget=${stateBAfter.budgetRemainingFp}, expected=${Math.floor(costFp * 9000 / 10000)}`);
     check('fishA kill does not affect fishB budget', stateBAfter.sumCostFp === costFp,
         `sumCost=${stateBAfter.sumCostFp}`);
+}
+
+console.log('\n--- T6c: Multi-fish isolation + pityComp (per-fish state with compensation) ---');
+{
+    const rtp = new RTPPhase1();
+    const costFp = 1 * MONEY_SCALE;
+    const SHOTS = 50000;
+
+    let rewardA = 0, spentA = 0, fishA = 0;
+    let rewardB = 0, spentB = 0, fishB = 0;
+
+    for (let shot = 0; shot < SHOTS; shot++) {
+        spentA += 1;
+        const rA = rtp.handleSingleTargetHit('iso2', `fA-${fishA}`, costFp, 6);
+        if (rA.kill) { rewardA += rA.reward; fishA++; }
+
+        spentB += 1;
+        const rB = rtp.handleSingleTargetHit('iso2', `fB-${fishB}`, costFp, 1);
+        if (rB.kill) { rewardB += rB.reward; fishB++; }
+    }
+
+    const rtpA = spentA > 0 ? (rewardA / spentA * 100) : 0;
+    const rtpB = spentB > 0 ? (rewardB / spentB * 100) : 0;
+    const targetA = TIER_CONFIG[6].rtpTierFp / 100;
+    const targetB = TIER_CONFIG[1].rtpTierFp / 100;
+    const tolIso = 2.0;
+    check('T6 fishA RTP unaffected by T1 fishB', rtpA >= targetA - tolIso && rtpA <= targetA + tolIso,
+        `actual=${rtpA.toFixed(2)}%, target=${targetA.toFixed(2)}% +/-${tolIso}%`);
+    check('T1 fishB RTP unaffected by T6 fishA', rtpB >= targetB - tolIso && rtpB <= targetB + tolIso,
+        `actual=${rtpB.toFixed(2)}%, target=${targetB.toFixed(2)}% +/-${tolIso}%`);
+
+    const stateALast = rtp.getState('iso2', `fA-${fishA}`);
+    const stateBLast = rtp.getState('iso2', `fB-${fishB}`);
+    if (stateALast && stateBLast) {
+        check('fishA budget independent of fishB', stateALast.sumCostFp <= TIER_CONFIG[6].n1Fp,
+            `fishA sumCost=${stateALast.sumCostFp}`);
+        check('fishB budget independent of fishA', stateBLast.sumCostFp <= TIER_CONFIG[1].n1Fp,
+            `fishB sumCost=${stateBLast.sumCostFp}`);
+    }
 }
 
 console.log('\n--- T7: Laser Weapon Config (single fire event) ---');
