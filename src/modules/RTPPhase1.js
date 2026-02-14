@@ -1,5 +1,12 @@
 const { secureRandom, secureRandomUUID } = require('../rng/CSPRNG');
 
+// ═══════════════════════════════════════════════════════════════════
+// GUARDRAIL: All values below are STATIC LOOKUP from RTP System Bible.
+//   - reward_fp / N1_fp / RTP_tier_fp must ONLY come from TIER_CONFIG.
+//   - PROHIBIT runtime computeRewardFp or reverse-engineer reward table.
+//   - Any change here must match Bible §1-§3 exactly.
+// ═══════════════════════════════════════════════════════════════════
+
 const MONEY_SCALE = 1000;
 const RTP_SCALE = 10000;
 const WEIGHT_SCALE = 1000000;
@@ -135,6 +142,14 @@ class RTPPhase1 {
         };
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // GUARDRAIL — Multi-target settlement rules:
+    //   1. Called ONCE per fire event with full hitList.
+    //      PROHIBIT per-hit full-cost handleMultiTargetHit calls.
+    //   2. Budget conservation: Σbudget_i_fp == budget_total_fp
+    //      (last target gets remainder to avoid fp rounding leak).
+    //   3. 8x laser: single fire → single cost deduction → one batch call.
+    // ═══════════════════════════════════════════════════════════════
     handleMultiTargetHit(playerId, hitList, weaponCostFp, weaponType) {
         if (!hitList || hitList.length === 0) return [];
 
@@ -233,6 +248,7 @@ class RTPPhase1 {
     }
 
     _executeKill(state, config, playerId, fishId, reason) {
+        // GUARDRAIL: budget_remaining must stay >= 0 after kill (budget gate ensures this)
         state.budgetRemainingFp -= config.rewardFp;
         state.killed = true;
         const killEventId = secureRandomUUID();

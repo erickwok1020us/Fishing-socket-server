@@ -83,6 +83,7 @@ class SeededRNG {
  * 
  * Multiplier formula: multiplier = floor(health * targetRTP)
  */
+// SSOT fish list = 20 species (per RTP System Bible §3)
 const FISH_SPECIES = {
     // ==================== TIER 6: BOSS (1% spawn rate, HP 1000-2000, 95% RTP) ====================
     blueWhale: {
@@ -693,6 +694,13 @@ class Fish3DGameEngine {
         return bullets.length === 1 ? bullets[0] : bullets;
     }
     
+    // ═══════════════════════════════════════════════════════════════
+    // GUARDRAIL — 8x Laser: instant ray cast in handleShoot.
+    //   - Single fire event → single cost deduction (already done in handleShoot).
+    //   - Batch ALL hits into ONE handleMultiTargetHit call.
+    //   - PROHIBIT per-hit full-cost multi-target handler calls.
+    //   - Laser must NOT appear in checkCollisions (no traveling bullet).
+    // ═══════════════════════════════════════════════════════════════
     _resolveLaserHits(socketId, player, weapon, dirX, dirZ, io) {
         const rayLen = 300;
         const x1 = player.cannonX;
@@ -993,6 +1001,8 @@ class Fish3DGameEngine {
         }
     }
     
+    // GUARDRAIL: Only projectile (1x), spread (3x), and rocket (5x) reach here.
+    //   Laser (8x) is resolved in handleShoot → _resolveLaserHits. No laser bullets exist.
     checkCollisions(io) {
         for (const [bulletId, bullet] of this.bullets) {
             if (bullet.hasHit) continue;
