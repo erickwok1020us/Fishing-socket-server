@@ -512,7 +512,7 @@ class Fish3DGameEngine {
             rotation: path.rotation,
             speed: fishType.speed,
             
-            // Stats (M3: HP derived from seed commitment)
+            // Visual-only metadata (not used for kill decisions; RTP roll determines kill)
             health: fishHP,
             maxHealth: fishHP,
             multiplier: fishType.multiplier,
@@ -589,6 +589,18 @@ class Fish3DGameEngine {
         
         const bullets = [];
         
+        if (weapon.type === 'laser') {
+            this._resolveLaserHits(socketId, player, weapon, normalizedDx, normalizedDz, io);
+            
+            io.to(socketId).emit('balanceUpdate', {
+                balance: player.balance,
+                change: -weapon.cost,
+                reason: 'shot'
+            });
+            
+            return null;
+        }
+        
         if (weapon.type === 'spread') {
             const spreadAngle = 15 * (Math.PI / 180);
             const pelletOffsets = [0, spreadAngle, -spreadAngle];
@@ -606,7 +618,6 @@ class Fish3DGameEngine {
                     ownerId: player.playerId,
                     ownerSocketId: socketId,
                     weapon: player.currentWeapon,
-                    damage: 1,
                     cost: weapon.pelletCost,
                     pelletIndex: i,
                     
@@ -644,7 +655,6 @@ class Fish3DGameEngine {
                 ownerId: player.playerId,
                 ownerSocketId: socketId,
                 weapon: player.currentWeapon,
-                damage: weapon.damage,
                 cost: weapon.cost,
                 
                 x: player.cannonX,
@@ -681,6 +691,133 @@ class Fish3DGameEngine {
         });
         
         return bullets.length === 1 ? bullets[0] : bullets;
+    }
+    
+    _resolveLaserHits(socketId, player, weapon, dirX, dirZ, io) {
+        const rayLen = 300;
+        const x1 = player.cannonX;
+        const z1 = player.cannonZ;
+        const x2 = x1 + dirX * rayLen;
+        const z2 = z1 + dirZ * rayLen;
+        
+        const candidates = [];
+        for (const [fishId, fish] of this.fish) {
+            if (!fish.isAlive) continue;
+            const fishRadius = (fish.size / 10) * this.FISH_BASE_RADIUS;
+            const combinedRadius = fishRadius + this.BULLET_RADIUS;
+            if (this.lineCircleIntersection(x1, z1, x2, z2, fish.x, fish.z, combinedRadius)) {
+                const dist = Math.sqrt(Math.pow(fish.x - x1, 2) + Math.pow(fish.z - z1, 2));
+                candidates.push({ fishId, fish, dist });
+            }
+        }
+        
+        candidates.sort((a, b) => a.dist - b.dist);
+        const trimmed = candidates.slice(0, weapon.maxTargets || 6);
+        
+        if (trimmed.length === 0) {
+            io.to(this.roomCode).emit('laserFired', {
+                playerId: player.playerId,
+                x1, z1, x2, z2,
+                hits: []
+            });
+            return;
+        }
+        
+        const hitList = trimmed.map(h => ({
+            fishId: h.fishId,
+            tier: h.fish.tier,
+            distance: h.dist
+        }));
+        
+        const results = this.rtpEngine.handleMultiTargetHit(
+            socketId,
+            hitList,
+            weapon.cost * MONEY_SCALE,
+            'laser'
+        );
+        
+        player.totalShots++;
+        player.totalHits++;
+        anomalyDetector.recordHit(socketId, '8x');
+        
+        const hitResults = [];
+        for (const result of results) {
+            const entry = trimmed.find(h => h.fishId === result.fishId);
+            if (!entry) continue;
+            
+            entry.fish.lastHitBy = socketId;
+            const currentCost = entry.fish.costByPlayer.get(socketId) || 0;
+            entry.fish.costByPlayer.set(socketId, currentCost + weapon.cost);
+            
+            hitResults.push({ fishId: result.fishId, kill: result.kill });
+            
+            io.to(this.roomCode).emit('fishHit', {
+                fishId: result.fishId,
+                hitByPlayerId: player.playerId,
+                isPenetrating: true
+            });
+            
+            if (result.kill) {
+                this._handleLaserKill(entry.fish, socketId, player, io, result);
+            }
+        }
+        
+        io.to(this.roomCode).emit('laserFired', {
+            playerId: player.playerId,
+            x1, z1, x2, z2,
+            hits: hitResults
+        });
+    }
+    
+    _handleLaserKill(fish, killerSocketId, killer, io, rtpResult) {
+        fish.isAlive = false;
+        const totalReward = rtpResult.reward;
+        
+        if (killer && totalReward > 0) {
+            killer.balance += totalReward;
+            killer.score += totalReward;
+            killer.totalKills++;
+            
+            io.to(killerSocketId).emit('balanceUpdate', {
+                balance: killer.balance,
+                change: totalReward,
+                reason: 'fishKill',
+                fishType: fish.typeName,
+                killEventId: rtpResult.killEventId
+            });
+        }
+        
+        if (fish.isBoss) {
+            this.killsSinceLastBoss = 0;
+            if (fish.fishId === this.currentBoss) this.currentBoss = null;
+        } else {
+            this.killsSinceLastBoss++;
+        }
+        
+        const rulesHash = this.configHashManager ? this.configHashManager.getHash() : null;
+        const rulesVersion = this.configHashManager ? this.configHashManager.getVersion() : null;
+        
+        io.to(this.roomCode).emit('fishKilled', {
+            fishId: fish.fishId,
+            typeName: fish.typeName,
+            topContributorId: killer ? killer.playerId : null,
+            totalReward,
+            isBoss: fish.isBoss,
+            position: { x: fish.x, z: fish.z },
+            seedCommitment: fish.seedCommitment,
+            rulesHash,
+            killEventId: rtpResult.killEventId,
+            killReason: rtpResult.reason
+        });
+        
+        const receipt = createFishDeathReceipt(
+            fish, [{ playerId: killer.playerId, socketId: killerSocketId, cost: fish.costByPlayer.get(killerSocketId) || 0, percent: 100, reward: totalReward }],
+            totalReward, rulesHash, rulesVersion, fish.seedCommitment
+        );
+        this.receiptChain.addReceipt(receipt);
+        
+        this.rtpEngine.clearFishStates(fish.fishId);
+        this.fish.delete(fish.fishId);
     }
     
     /**
@@ -856,19 +993,12 @@ class Fish3DGameEngine {
         }
     }
     
-    /**
-     * Check bullet-fish collisions (2D line-circle intersection)
-     * Supports penetrating weapons (20x) that can hit up to 5 fish with damage reduction
-     */
     checkCollisions(io) {
         for (const [bulletId, bullet] of this.bullets) {
             if (bullet.hasHit) continue;
             
             const weapon = WEAPONS[bullet.weapon];
-            const isLaser = weapon.type === 'laser';
             const isRocket = weapon.type === 'rocket';
-            const maxPenetrations = isLaser ? (weapon.maxTargets || 6) : 1;
-            let penetrationCount = bullet.penetrationCount || 0;
             
             const fishHitThisTick = [];
             
@@ -930,63 +1060,8 @@ class Fish3DGameEngine {
                     io.to(this.roomCode).emit('fishHit', {
                         fishId: result.fishId,
                         bulletId,
-                        damage: 0,
-                        newHealth: hitEntry.fish.health,
-                        maxHealth: hitEntry.fish.maxHealth,
                         hitByPlayerId: shooter ? shooter.playerId : null,
                         isAOE: true
-                    });
-                    
-                    if (result.kill) {
-                        this.handleFishKill(hitEntry.fish, bullet, io, result);
-                    }
-                }
-                
-                bullet.hasHit = true;
-                this.bullets.delete(bulletId);
-                continue;
-            }
-            
-            if (isLaser && fishHitThisTick.length > 0) {
-                const trimmed = fishHitThisTick.slice(0, maxPenetrations);
-                const hitList = trimmed.map((h, idx) => ({
-                    fishId: h.fishId,
-                    tier: h.fish.tier,
-                    distance: h.distToFish
-                }));
-                
-                const results = this.rtpEngine.handleMultiTargetHit(
-                    bullet.ownerSocketId,
-                    hitList,
-                    bullet.cost * MONEY_SCALE,
-                    'laser'
-                );
-                
-                const shooter = this.players.get(bullet.ownerSocketId);
-                if (shooter) {
-                    shooter.totalHits++;
-                    anomalyDetector.recordHit(bullet.ownerSocketId, bullet.weapon);
-                }
-                
-                for (const result of results) {
-                    const hitEntry = trimmed.find(h => h.fishId === result.fishId);
-                    if (!hitEntry) continue;
-                    
-                    if (!bullet.fishAlreadyHit) bullet.fishAlreadyHit = new Set();
-                    bullet.fishAlreadyHit.add(result.fishId);
-                    
-                    const currentCost = hitEntry.fish.costByPlayer.get(bullet.ownerSocketId) || 0;
-                    hitEntry.fish.costByPlayer.set(bullet.ownerSocketId, currentCost + bullet.cost);
-                    hitEntry.fish.lastHitBy = bullet.ownerSocketId;
-                    
-                    io.to(this.roomCode).emit('fishHit', {
-                        fishId: result.fishId,
-                        bulletId,
-                        damage: 0,
-                        newHealth: hitEntry.fish.health,
-                        maxHealth: hitEntry.fish.maxHealth,
-                        hitByPlayerId: shooter ? shooter.playerId : null,
-                        isPenetrating: true
                     });
                     
                     if (result.kill) {
@@ -1021,9 +1096,6 @@ class Fish3DGameEngine {
                 io.to(this.roomCode).emit('fishHit', {
                     fishId,
                     bulletId,
-                    damage: 0,
-                    newHealth: fish.health,
-                    maxHealth: fish.maxHealth,
                     hitByPlayerId: shooter ? shooter.playerId : null
                 });
                 
@@ -1199,8 +1271,8 @@ class Fish3DGameEngine {
                 vx: fish.velocityX,
                 vz: fish.velocityZ,
                 rot: fish.rotation,
-                hp: fish.health,
-                maxHp: fish.maxHealth,
+                hp: fish.health,   // visual-only, not authoritative
+                maxHp: fish.maxHealth, // visual-only, not authoritative,
                 size: fish.size,
                 isBoss: fish.isBoss
             });
