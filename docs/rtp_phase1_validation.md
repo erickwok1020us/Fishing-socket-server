@@ -13,10 +13,10 @@ node docs/rtp_phase1_smoke_test.js
 | Metric | Expected | Fail Condition |
 |--------|----------|----------------|
 | T1 RTP convergence (10k shots) | 90% +/- 2% | Outside [88%, 92%] |
-| T2 RTP convergence (10k shots) | 91% +/- 2% | Outside [89%, 93%] |
-| T3 RTP convergence (10k shots) | 92% +/- 2% | Outside [90%, 94%] |
-| T4 RTP convergence (10k shots) | 93% +/- 2% | Outside [91%, 95%] |
-| T5 RTP convergence (10k shots) | 94% +/- 2% | Outside [92%, 96%] |
+| T2 RTP convergence (10k shots) | 92% +/- 2% | Outside [90%, 94%] |
+| T3 RTP convergence (10k shots) | 93% +/- 2% | Outside [91%, 95%] |
+| T4 RTP convergence (10k shots) | 94% +/- 2% | Outside [92%, 96%] |
+| T5 RTP convergence (10k shots) | 94.5% +/- 2% | Outside [92.5%, 96.5%] |
 | T6 RTP convergence (10k shots) | 95% +/- 2% | Outside [93%, 97%] |
 | Hard pity trigger | sum_cost >= N1_fp AND budget >= reward_fp | Pity never fires or fires early |
 | budget_remaining_fp | Always >= 0 after kill | Goes negative |
@@ -55,10 +55,10 @@ Hard pity at N1 truncates the geometric distribution: ~30% of fish are force-kil
 | Tier | RTP_fp | N1 | N1_fp | reward_fp |
 |------|--------|----|-------|-----------|
 | T1 | 9000 | 6 | 6000 | 4500 |
-| T2 | 9100 | 10 | 10000 | 7583 |
-| T3 | 9200 | 16 | 16000 | 12266 |
-| T4 | 9300 | 30 | 30000 | 23250 |
-| T5 | 9400 | 45 | 45000 | 35250 |
+| T2 | 9200 | 10 | 10000 | 7666 |
+| T3 | 9300 | 16 | 16000 | 12400 |
+| T4 | 9400 | 30 | 30000 | 23500 |
+| T5 | 9450 | 45 | 45000 | 35437 |
 | T6 | 9500 | 120 | 120000 | 95000 |
 
 ### S4: Single-Target Flow
