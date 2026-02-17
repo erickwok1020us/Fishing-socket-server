@@ -20,7 +20,7 @@ const { ReceiptChain, createFishDeathReceipt } = require('./src/modules/AuditRec
 // M4: Anomaly detection for hit rate tracking
 const { anomalyDetector } = require('./src/modules/AnomalyDetector');
 // RTP Phase 1: Probabilistic kill system
-const { RTPPhase1, MONEY_SCALE, TIER_CONFIG } = require('./src/modules/RTPPhase1');
+const { RTPPhase1, MONEY_SCALE, TIER_CONFIG, AOE_MAX_TARGETS, LASER_MAX_TARGETS } = require('./src/modules/RTPPhase1');
 
 /**
  * Seeded Random Number Generator (Mulberry32)
@@ -719,8 +719,8 @@ class Fish3DGameEngine {
             }
         }
         
-        candidates.sort((a, b) => a.dist - b.dist);
-        const trimmed = candidates.slice(0, weapon.maxTargets || 6);
+        candidates.sort((a, b) => a.dist - b.dist || a.fishId.localeCompare(b.fishId));
+        const trimmed = candidates.slice(0, weapon.maxTargets || LASER_MAX_TARGETS);
         
         if (trimmed.length === 0) {
             io.to(this.roomCode).emit('laserFired', {
@@ -1040,10 +1040,10 @@ class Fish3DGameEngine {
                 }
             }
             
-            fishHitThisTick.sort((a, b) => a.distToFish - b.distToFish);
+            fishHitThisTick.sort((a, b) => a.distToFish - b.distToFish || a.fishId.localeCompare(b.fishId));
             
             if (isRocket && fishHitThisTick.length > 0) {
-                const trimmed = fishHitThisTick.slice(0, weapon.maxTargets || 8);
+                const trimmed = fishHitThisTick.slice(0, weapon.maxTargets || AOE_MAX_TARGETS);
                 const hitList = trimmed.map(h => ({
                     fishId: h.fishId,
                     tier: h.fish.tier,
