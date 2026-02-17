@@ -1,6 +1,6 @@
-# RTP Phase 1 Validation Guide
+# RTP Phase 1.1 Validation Guide
 
-Reference: RTP System Bible v1.0
+Reference: RTP System Bible v1.1
 
 ## Quick Validation
 
@@ -75,9 +75,42 @@ Hard pity at N1 truncates the geometric distribution: ~30% of fish are force-kil
 - If killed mid-pellet, remaining pellets miss (state.killed check)
 
 ### S6: Multi-Target (AOE/Laser)
-- AOE: weight = 1/max(distance, 1), sort by distance asc, cap 8
-- Laser: weight = 1/hit_order, sort by distance asc, cap 6
-- Budget conservation: sum(budget_i_fp) == budget_total_fp (last gets remainder)
+
+#### S6.1 Deterministic Hit Selection (sort → truncate → settle)
+
+| Weapon | Sort Primary | Sort Tie-Break | Cap | Constant |
+|--------|-------------|----------------|-----|----------|
+| 5x Rocket (AOE) | distance ASC | fishId.localeCompare() ASC | 8 | AOE_MAX_TARGETS |
+| 8x Laser | hitOrder ASC (= distance to cannon) | fishId.localeCompare() ASC | 6 | LASER_MAX_TARGETS |
+
+**Pipeline:** raw candidates → sort(primary, tie-break) → slice(0, cap) → compute weights/budget → settle
+
+> CRITICAL: Weights and budget are computed ONLY on the post-truncation list.
+> This ensures density does not penalize individual fish — each fish's budget_i
+> depends only on the capped set, not on how many fish were in the scene.
+
+#### S6.2 Cap Constants — Single Source of Truth (SSOT)
+
+```
+Server: src/modules/RTPPhase1.js
+  AOE_MAX_TARGETS = 8
+  LASER_MAX_TARGETS = 6
+
+Game Engine: fish3DGameEngine.js
+  Imports from RTPPhase1.js (MUST NOT hardcode)
+
+Client (if hit preview exists):
+  MUST read from server config sync or shared constants.
+  If client shows "20 fish hit" but server only settles 8,
+  players will perceive a bug. Client preview MUST respect
+  the same cap values as server.
+```
+
+#### S6.3 Weight & Budget Allocation
+- AOE: weight_i = 1/max(distance_i, 1) (closer fish get more budget)
+- Laser: weight_i = 1/(hitOrder_i + 1) (first-hit fish gets most budget)
+- Normalized: weight_i_fp = floor(rawWeight_i * WEIGHT_SCALE / rawSum), last gets remainder
+- Budget conservation: Σbudget_i_fp == budget_total_fp (last target gets remainder)
 - Cost allocation: cost_i_fp = floor(weapon_cost_fp * weight_i_fp / WEIGHT_SCALE)
 - Each fish gets independent CSPRNG roll
 
@@ -86,11 +119,14 @@ Hard pity at N1 truncates the geometric distribution: ~30% of fish are force-kil
 - All collisions server-side
 - kill_event_id = UUID (unique per kill)
 
-## How to Run Smoke Test
+## How to Run Tests
 
 ```bash
-cd /path/to/Fishing-socket-server
+# Smoke test (fast, basic sanity)
 node docs/rtp_phase1_smoke_test.js
+
+# T5 regression: cap + budget normalization (99 assertions, ~90s)
+npm run rtp:t5
 ```
 
 The smoke test verifies:
@@ -98,3 +134,23 @@ The smoke test verifies:
 2. Multi-target budget conservation (sum = total)
 3. reward_fp matches static config for all tiers
 4. RTP convergence over 10k simulated shots per tier
+
+T5 regression verifies:
+1. Hard-fail cap enforcement (100 fish → always ≤ cap)
+2. Deterministic ordering (same input → same output)
+3. Budget conservation (Σbudget_i_fp == budget_total_fp)
+4. Truncation invariant (Σweight post-truncation == WEIGHT_SCALE)
+5. RTP_shot ≤ target+2pp across density matrix (Sparse/Normal/Dense/Extreme)
+6. N-sweep hitCount=1..cap
+7. Extreme density (N=20/50/100) proves cap works
+8. Mixed-tier scenarios
+9. Single-target vs multi-target N=1 parity
+
+### PR Checklist
+
+When submitting changes that touch RTP settlement, paste T5 summary:
+```
+npm run rtp:t5
+# Expected: PASS=N FAIL=0
+# Include: MC shots, max RTP_shot drift, seed info
+```

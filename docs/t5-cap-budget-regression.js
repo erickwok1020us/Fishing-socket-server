@@ -38,15 +38,6 @@ function makeHitList(n, tier, startDist) {
     return list;
 }
 
-function makeShuffledHitList(n, tier) {
-    const list = makeHitList(n, tier, 10);
-    for (let i = list.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [list[i], list[j]] = [list[j], list[i]];
-    }
-    return list;
-}
-
 function tierLabel(t) {
     return ['', 'S1-Small', 'S2-Common', 'S3-Medium', 'S4-Large', 'S5-Rare', 'S6-Boss'][t] || `T${t}`;
 }
@@ -153,6 +144,75 @@ for (const wType of ['aoe', 'laser']) {
         );
     }
     console.log(`   ${wType.toUpperCase()}: budget conservation holds for N=1..${cap}`);
+}
+
+console.log('\nB2. Truncation invariant: Σweight == WEIGHT_SCALE post-truncation, budget unchanged\n');
+
+for (const wType of ['aoe', 'laser']) {
+    const cap = wType === 'laser' ? LASER_MAX_TARGETS : AOE_MAX_TARGETS;
+    const weaponCostFp = (wType === 'laser' ? 8 : 5) * MONEY_SCALE;
+
+    for (const rawN of [cap, cap + 5, 20, 50, 100]) {
+        const fullList = makeHitList(rawN, 1, 10);
+        const trimmedList = fullList.slice(0, cap);
+        const n = trimmedList.length;
+
+        const rawWeights = new Array(n);
+        let rawSum = 0;
+        for (let i = 0; i < n; i++) {
+            if (wType === 'laser') {
+                rawWeights[i] = Math.floor(WEIGHT_SCALE / (i + 1));
+            } else {
+                const dist = Math.max(trimmedList[i].distance, 1);
+                rawWeights[i] = Math.floor(WEIGHT_SCALE / dist);
+            }
+            rawSum += rawWeights[i];
+        }
+        if (rawSum === 0) rawSum = 1;
+
+        const weightsFp = new Array(n);
+        let wSum = 0;
+        for (let i = 0; i < n - 1; i++) {
+            weightsFp[i] = Math.floor(rawWeights[i] * WEIGHT_SCALE / rawSum);
+            wSum += weightsFp[i];
+        }
+        weightsFp[n - 1] = WEIGHT_SCALE - wSum;
+
+        const totalWeight = weightsFp.reduce((s, w) => s + w, 0);
+        assert(
+            totalWeight === WEIGHT_SCALE,
+            `B2-${wType}-raw${rawN}: Σweight_fp=${totalWeight} == WEIGHT_SCALE=${WEIGHT_SCALE}`
+        );
+
+        let rtpWeightedFp = 0;
+        for (let i = 0; i < n; i++) {
+            const tc = TIER_CONFIG[trimmedList[i].tier];
+            rtpWeightedFp += Math.floor(weightsFp[i] * tc.rtpTierFp / WEIGHT_SCALE);
+        }
+        const budgetTotalFp = Math.floor(weaponCostFp * rtpWeightedFp / RTP_SCALE);
+
+        let budgetAllocSum = 0;
+        const budgetAllocFp = new Array(n);
+        for (let i = 0; i < n - 1; i++) {
+            budgetAllocFp[i] = Math.floor(budgetTotalFp * weightsFp[i] / WEIGHT_SCALE);
+            budgetAllocSum += budgetAllocFp[i];
+        }
+        budgetAllocFp[n - 1] = budgetTotalFp - budgetAllocSum;
+        budgetAllocSum += budgetAllocFp[n - 1];
+
+        assert(
+            budgetAllocSum === budgetTotalFp,
+            `B2-${wType}-raw${rawN}: Σbudget_i=${budgetAllocSum} == budget_total=${budgetTotalFp} (post-truncation)`
+        );
+
+        const rtp2 = new RTPPhase1();
+        const results = rtp2.handleMultiTargetHit('p1', fullList, weaponCostFp, wType);
+        assert(
+            results.length <= cap,
+            `B2-${wType}-raw${rawN}: results.length=${results.length} <= cap=${cap} (truncation enforced)`
+        );
+    }
+    console.log(`   ${wType.toUpperCase()}: Σweight==WEIGHT_SCALE, Σbudget==budget_total for raw N∈{${cap},${cap+5},20,50,100}`);
 }
 
 const THRESHOLD_PP = 2;

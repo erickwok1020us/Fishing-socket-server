@@ -10,7 +10,8 @@
       "test:watch": "jest --watch",
       "test:coverage": "jest --coverage",
       "test:load": "artillery run artillery.yml",
-      "test:load:production": "artillery run -e production artillery.yml"
+      "test:load:production": "artillery run -e production artillery.yml",
+      "rtp:t5": "node docs/t5-cap-budget-regression.js"
     },
   "dependencies": {
     "@socket.io/redis-adapter": "^8.3.0",
