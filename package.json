@@ -11,7 +11,8 @@
       "test:coverage": "jest --coverage",
       "test:load": "artillery run artillery.yml",
       "test:load:production": "artillery run -e production artillery.yml",
-      "rtp:t5": "node docs/t5-cap-budget-regression.js"
+      "rtp:t5": "node docs/t5-cap-budget-regression.js",
+      "rtp:behavior": "node docs/rtp_player_behavior_sim.js"
     },
   "dependencies": {
     "@socket.io/redis-adapter": "^8.3.0",
