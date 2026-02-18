@@ -1372,7 +1372,12 @@ class Fish3DGameEngine {
             const da = a[distKey];
             const db = b[distKey];
             if (da !== db) return da - db;
-            return String(a.fishId).localeCompare(String(b.fishId));
+            const aId = a.fishId;
+            const bId = b.fishId;
+            const aN = Number(aId);
+            const bN = Number(bId);
+            if (!Number.isNaN(aN) && !Number.isNaN(bN)) return aN - bN;
+            return String(aId).localeCompare(String(bId));
         });
         candidates.length = Math.min(candidates.length, maxTargets);
     }

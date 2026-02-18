@@ -452,17 +452,28 @@ console.log('\nH. Integration: sortAndTrimHitList (production code path) + fishI
     ];
     let noThrow = true;
     try {
-        sAT(numericIds, 3, 'dist');
+        sAT(numericIds, 4, 'dist');
     } catch (e) {
         noThrow = false;
     }
-    assert(noThrow, 'H4-numeric: sortAndTrimHitList handles numeric fishId via String() without throwing');
+    assert(noThrow, 'H4-numeric: sortAndTrimHitList handles numeric fishId without throwing');
     const numIds = ids(numericIds);
-    const numRun1 = JSON.stringify(numIds);
-    sAT(numericIds, 3, 'dist');
-    const numRun2 = JSON.stringify(ids(numericIds));
-    assert(numRun1 === numRun2, `H4-numeric-deterministic: numeric fishId sort is deterministic across runs`);
-    console.log(`   String fishId: 20/20 pass | Numeric fishId: no-throw, deterministic via String()`);
+    assert(
+        JSON.stringify(numIds) === JSON.stringify([7, 42, 99, 3]),
+        `H4-numeric-order: numeric fishId sorted numerically (7<42<99), then dist=20 last → got [${numIds}]`
+    );
+    console.log(`   String fishId: 20/20 pass | Numeric fishId: numeric order [${numIds}]`);
+
+    const numStrIds = [
+        { fishId: '42', dist: 10 }, { fishId: '7', dist: 10 },
+        { fishId: '99', dist: 10 }, { fishId: '3', dist: 10 }
+    ];
+    sAT(numStrIds, 4, 'dist');
+    assert(
+        JSON.stringify(ids(numStrIds)) === JSON.stringify(['3', '7', '42', '99']),
+        `H4-numstr: numeric-string fishId sorted numerically → [${ids(numStrIds)}]`
+    );
+    console.log(`   Numeric-string fishId: numeric order [${ids(numStrIds)}]`);
 
     console.log('\n   H5. distKey parameter: works with both "dist" and "distToFish"\n');
 
