@@ -152,8 +152,8 @@ class RTPPhase1 {
     //      (last target gets remainder to avoid fp rounding leak).
     //   3. 8x laser: single fire → single cost deduction → one batch call.
     // ═══════════════════════════════════════════════════════════════
-    handleMultiTargetHit(playerId, hitList, weaponCostFp, weaponType) {
-        if (!hitList || hitList.length === 0) return [];
+    handleMultiTargetHit(playerId, hitList, weaponCostFp, weaponType, options = {}) {
+        if (!hitList || hitList.length === 0) return options.debug ? { results: [], _debug: null } : [];
 
         const maxTargets = weaponType === 'laser' ? LASER_MAX_TARGETS : AOE_MAX_TARGETS;
         const trimmedList = hitList.slice(0, maxTargets);
@@ -239,6 +239,19 @@ class RTPPhase1 {
             } else {
                 results.push({ fishId: entry.fishId, kill: false, reason: 'roll_failed', pFp: pIFp });
             }
+        }
+
+        if (options.debug) {
+            return {
+                results,
+                _debug: {
+                    trimmedList,
+                    weightsFp: [...weightsFp],
+                    budgetAllocFp: [...budgetAllocFp],
+                    budgetTotalFp,
+                    rtpWeightedFp
+                }
+            };
         }
 
         return results;
