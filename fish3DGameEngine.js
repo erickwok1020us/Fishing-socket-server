@@ -20,7 +20,7 @@ const { ReceiptChain, createFishDeathReceipt } = require('./src/modules/AuditRec
 // M4: Anomaly detection for hit rate tracking
 const { anomalyDetector } = require('./src/modules/AnomalyDetector');
 // RTP Phase 1: Probabilistic kill system
-const { RTPPhase1, MONEY_SCALE, TIER_CONFIG } = require('./src/modules/RTPPhase1');
+const { RTPPhase1, MONEY_SCALE, TIER_CONFIG, AOE_MAX_TARGETS, LASER_MAX_TARGETS } = require('./src/modules/RTPPhase1');
 
 /**
  * Seeded Random Number Generator (Mulberry32)
@@ -719,10 +719,9 @@ class Fish3DGameEngine {
             }
         }
         
-        candidates.sort((a, b) => a.dist - b.dist);
-        const trimmed = candidates.slice(0, weapon.maxTargets || 6);
+        Fish3DGameEngine.sortAndTrimHitList(candidates, weapon.maxTargets || LASER_MAX_TARGETS, 'dist');
         
-        if (trimmed.length === 0) {
+        if (candidates.length === 0) {
             io.to(this.roomCode).emit('laserFired', {
                 playerId: player.playerId,
                 x1, z1, x2, z2,
@@ -731,7 +730,7 @@ class Fish3DGameEngine {
             return;
         }
         
-        const hitList = trimmed.map(h => ({
+        const hitList = candidates.map(h => ({
             fishId: h.fishId,
             tier: h.fish.tier,
             distance: h.dist
@@ -750,7 +749,7 @@ class Fish3DGameEngine {
         
         const hitResults = [];
         for (const result of results) {
-            const entry = trimmed.find(h => h.fishId === result.fishId);
+            const entry = candidates.find(h => h.fishId === result.fishId);
             if (!entry) continue;
             
             entry.fish.lastHitBy = socketId;
@@ -1040,11 +1039,10 @@ class Fish3DGameEngine {
                 }
             }
             
-            fishHitThisTick.sort((a, b) => a.distToFish - b.distToFish);
+            Fish3DGameEngine.sortAndTrimHitList(fishHitThisTick, weapon.maxTargets || AOE_MAX_TARGETS, 'distToFish');
             
             if (isRocket && fishHitThisTick.length > 0) {
-                const trimmed = fishHitThisTick.slice(0, weapon.maxTargets || 8);
-                const hitList = trimmed.map(h => ({
+                const hitList = fishHitThisTick.map(h => ({
                     fishId: h.fishId,
                     tier: h.fish.tier,
                     distance: h.distToFish
@@ -1064,7 +1062,7 @@ class Fish3DGameEngine {
                 }
                 
                 for (const result of results) {
-                    const hitEntry = trimmed.find(h => h.fishId === result.fishId);
+                    const hitEntry = fishHitThisTick.find(h => h.fishId === result.fishId);
                     if (!hitEntry) continue;
                     
                     io.to(this.roomCode).emit('fishHit', {
@@ -1367,6 +1365,21 @@ class Fish3DGameEngine {
     // M5: Verify the receipt chain integrity
     verifyReceiptChain() {
         return this.receiptChain.verifyChain();
+    }
+
+    static sortAndTrimHitList(candidates, maxTargets, distKey = 'dist') {
+        candidates.sort((a, b) => {
+            const da = a[distKey];
+            const db = b[distKey];
+            if (da !== db) return da - db;
+            const aId = a.fishId;
+            const bId = b.fishId;
+            const aN = Number(aId);
+            const bN = Number(bId);
+            if (!Number.isNaN(aN) && !Number.isNaN(bN)) return aN - bN;
+            return String(aId).localeCompare(String(bId));
+        });
+        candidates.length = Math.min(candidates.length, maxTargets);
     }
 }
 

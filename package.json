@@ -10,7 +10,12 @@
       "test:watch": "jest --watch",
       "test:coverage": "jest --coverage",
       "test:load": "artillery run artillery.yml",
-      "test:load:production": "artillery run -e production artillery.yml"
+      "test:load:production": "artillery run -e production artillery.yml",
+            "rtp:t5": "node docs/t5-cap-budget-regression.js",
+            "rtp:behavior": "node docs/rtp_player_behavior_sim.js",
+            "rtp:p0": "node docs/rtp_p0_regression.js",
+            "rtp:p1": "node docs/rtp_p1_regression.js",
+            "rtp:next-round": "node docs/rtp_next_round.js"
     },
   "dependencies": {
     "@socket.io/redis-adapter": "^8.3.0",
