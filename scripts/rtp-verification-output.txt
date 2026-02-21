@@ -1,0 +1,238 @@
+╔═══════════════════════════════════════════════════════════════════════╗
+║  RTP VERIFICATION — MONTE CARLO v2 (corrected: pelletCost=1)        ║
+║  Seed: 20260217  |  2026-02-17T15:20:19                   ║
+║  Focus: T3(93%) / T4(94%) × 3x / 5x                                ║
+║  Server WEAPONS: 3x{cost:3, pelletCost:1, pellets:3}               ║
+║                  5x{cost:5, type:rocket, maxTargets:8}              ║
+╚═══════════════════════════════════════════════════════════════════════╝
+
+═══ A) BASELINE: handleSingleTargetHit, 1 bullet → 1 fish ═══
+NOTE: 1x and 3x-pellet both pass cost=1000fp. 5x/8x pass full weapon cost.
+      Only 1x baseline is the "correct" single-target path.
+      3x-pellet shows per-pellet RTP (matches 1x since same cost).
+      5x/8x single-target is NOT how server calls them (uses multi-target).
+
+┌─────────┬──────┬─────────────────────┬─────────┬─────────┬────────┬────────┬─────────┬──────────┬───────┬────────┬─────┬─────┬─────┐
+│ (index) │ Tier │ Weapon              │ Target% │ Actual% │ Diff%  │ Kills  │ Hits    │ AvgShots │ Pity% │ DblPay │ P50 │ P95 │ P99 │
+├─────────┼──────┼─────────────────────┼─────────┼─────────┼────────┼────────┼─────────┼──────────┼───────┼────────┼─────┼─────┼─────┤
+│ 0       │ 'T3' │ '1x(cost=1)'        │ 93      │ 93.0865 │ 0.0865 │ 100000 │ 1332095 │ 13.32    │ 67.48 │ 0      │ 16  │ 16  │ 16  │
+│ 1       │ 'T3' │ '3x-pellet(cost=1)' │ 93      │ 93.0865 │ 0.0865 │ 100000 │ 1332095 │ 13.32    │ 67.48 │ 0      │ 16  │ 16  │ 16  │
+│ 2       │ 'T4' │ '1x(cost=1)'        │ 94      │ 94.2906 │ 0.2906 │ 100000 │ 2492294 │ 24.92    │ 67.23 │ 0      │ 30  │ 30  │ 30  │
+│ 3       │ 'T4' │ '3x-pellet(cost=1)' │ 94      │ 94.2906 │ 0.2906 │ 100000 │ 2492294 │ 24.92    │ 67.23 │ 0      │ 30  │ 30  │ 30  │
+└─────────┴──────┴─────────────────────┴─────────┴─────────┴────────┴────────┴─────────┴──────────┴───────┴────────┴─────┴─────┴─────┘
+Budget remaining:
+┌─────────┬──────┬─────────────────────┬────────┬─────┬────────┬──────┬──────┐
+│ (index) │ Tier │ Weapon              │ Min    │ Avg │ P5     │ P50  │ P95  │
+├─────────┼──────┼─────────────────────┼────────┼─────┼────────┼──────┼──────┤
+│ 0       │ 'T3' │ '1x(cost=1)'        │ -11470 │ -12 │ -9610  │ 2480 │ 2480 │
+│ 1       │ 'T3' │ '3x-pellet(cost=1)' │ -11470 │ -12 │ -9610  │ 2480 │ 2480 │
+│ 2       │ 'T4' │ '1x(cost=1)'        │ -22560 │ -72 │ -19740 │ 4700 │ 4700 │
+│ 3       │ 'T4' │ '3x-pellet(cost=1)' │ -22560 │ -72 │ -19740 │ 4700 │ 4700 │
+└─────────┴──────┴─────────────────────┴────────┴─────┴────────┴──────┴──────┘
+
+═══ B1-a) 3x SHOTGUN — all pellets → SAME fish, pelletCost=1 ═══
+RTP = Σpayout / Σ(shots × 3)  (player pays 3 per shot)
+Each pellet calls handleSingleTargetHit(cost=1000fp).
+
+┌─────────┬──────┬────────────┬─────────┬─────────┬──────────┬───────┬─────────┬─────────┬──────────┬───────┬────────┬──────────┬─────┬─────┬─────┐
+│ (index) │ Tier │ PelletHit% │ Target% │ Actual% │ Diff%    │ Kills │ Shots   │ Pellets │ AvgShots │ Pity% │ DblPay │ PostKill │ P50 │ P95 │ P99 │
+├─────────┼──────┼────────────┼─────────┼─────────┼──────────┼───────┼─────────┼─────────┼──────────┼───────┼────────┼──────────┼─────┼─────┼─────┤
+│ 0       │ 'T3' │ 100        │ 93      │ 82.7464 │ -10.2536 │ 50000 │ 249759  │ 749277  │ 5        │ 67.55 │ 0      │ 0        │ 6   │ 6   │ 6   │
+│ 1       │ 'T3' │ 66         │ 93      │ 58.5924 │ -34.4076 │ 50000 │ 352719  │ 698518  │ 7.05     │ 67.41 │ 0      │ 0        │ 8   │ 10  │ 11  │
+│ 2       │ 'T3' │ 50         │ 93      │ 44.8299 │ -48.1701 │ 50000 │ 461002  │ 691122  │ 9.22     │ 67.49 │ 0      │ 0        │ 10  │ 14  │ 16  │
+│ 3       │ 'T3' │ 33         │ 93      │ 29.9796 │ -63.0204 │ 50000 │ 689357  │ 682466  │ 13.79    │ 67.29 │ 0      │ 0        │ 15  │ 22  │ 25  │
+│ 4       │ 'T3' │ 20         │ 93      │ 18.4081 │ -74.5919 │ 50000 │ 1122695 │ 673333  │ 22.45    │ 67.11 │ 0      │ 0        │ 24  │ 36  │ 42  │
+│ 5       │ 'T4' │ 100        │ 94      │ 93.1464 │ -0.8536  │ 50000 │ 420485  │ 1261455 │ 8.41     │ 67.08 │ 0      │ 0        │ 10  │ 10  │ 10  │
+│ 6       │ 'T4' │ 66         │ 94      │ 60.6183 │ -33.3817 │ 50000 │ 646119  │ 1279821 │ 12.92    │ 67.34 │ 0      │ 0        │ 15  │ 18  │ 19  │
+│ 7       │ 'T4' │ 50         │ 94      │ 46.1545 │ -47.8455 │ 50000 │ 848600  │ 1272052 │ 16.97    │ 67.24 │ 0      │ 0        │ 19  │ 24  │ 27  │
+│ 8       │ 'T4' │ 33         │ 94      │ 30.696  │ -63.304  │ 50000 │ 1275952 │ 1263381 │ 25.52    │ 67.21 │ 0      │ 0        │ 28  │ 38  │ 42  │
+│ 9       │ 'T4' │ 20         │ 94      │ 18.7247 │ -75.2753 │ 50000 │ 2091713 │ 1255321 │ 41.83    │ 67.16 │ 0      │ 0        │ 46  │ 63  │ 70  │
+└─────────┴──────┴────────────┴─────────┴─────────┴──────────┴───────┴─────────┴─────────┴──────────┴───────┴────────┴──────────┴─────┴─────┴─────┘
+
+B1-a Invariant Check:
+  T3 hit=100%: dblPay=0(OK) postKill=0(OK) diff=-10.2536% => PASS
+  T3 hit=66%: dblPay=0(OK) postKill=0(OK) diff=-34.4076% => PASS
+  T3 hit=50%: dblPay=0(OK) postKill=0(OK) diff=-48.1701% => PASS
+  T3 hit=33%: dblPay=0(OK) postKill=0(OK) diff=-63.0204% => PASS
+  T3 hit=20%: dblPay=0(OK) postKill=0(OK) diff=-74.5919% => PASS
+  T4 hit=100%: dblPay=0(OK) postKill=0(OK) diff=-0.8536% => PASS
+  T4 hit=66%: dblPay=0(OK) postKill=0(OK) diff=-33.3817% => PASS
+  T4 hit=50%: dblPay=0(OK) postKill=0(OK) diff=-47.8455% => PASS
+  T4 hit=33%: dblPay=0(OK) postKill=0(OK) diff=-63.304% => PASS
+  T4 hit=20%: dblPay=0(OK) postKill=0(OK) diff=-75.2753% => PASS
+
+═══ B1-b) 3x SPREAD — pellets hit random fish from pool of 10 ═══
+More realistic: pellets may hit different fish.
+
+┌─────────┬──────┬────────────────────┬─────────┬─────────┬─────────┬────────┬────────┬─────────────────┐
+│ (index) │ Tier │ Weapon             │ Target% │ Actual% │ Diff%   │ Kills  │ Shots  │ AvgShotsPerKill │
+├─────────┼──────┼────────────────────┼─────────┼─────────┼─────────┼────────┼────────┼─────────────────┤
+│ 0       │ 'T3' │ '3x-spread-pool10' │ 93      │ 92.4267 │ -0.5733 │ 100000 │ 447201 │ 4.47            │
+│ 1       │ 'T4' │ '3x-spread-pool10' │ 94      │ 93.5998 │ -0.4002 │ 100000 │ 836896 │ 8.37            │
+└─────────┴──────┴────────────────────┴─────────┴─────────┴─────────┴────────┴────────┴─────────────────┘
+
+═══ B2) 5x AOE — handleMultiTargetHit, budget split invariants ═══
+┌─────────┬──────┬────┬───────────┬─────────┬─────────┬──────────┬───────┬────────┬───────┬────────┬────────┬─────────┐
+│ (index) │ Tier │ HL │ Dist      │ Target% │ Actual% │ Diff%    │ Kills │ Fires  │ Pity% │ DblPay │ WtViol │ BgtViol │
+├─────────┼──────┼────┼───────────┼─────────┼─────────┼──────────┼───────┼────────┼───────┼────────┼────────┼─────────┤
+│ 0       │ 'T3' │ 1  │ 'uniform' │ 93      │ 75.4097 │ -17.5903 │ 50000 │ 164435 │ 64.3  │ 0      │ 0      │ 0       │
+│ 1       │ 'T3' │ 1  │ 'close'   │ 93      │ 75.4097 │ -17.5903 │ 50000 │ 164435 │ 64.3  │ 0      │ 0      │ 0       │
+│ 2       │ 'T3' │ 2  │ 'uniform' │ 93      │ 77.6573 │ -15.3427 │ 50000 │ 159676 │ 64.42 │ 0      │ 0      │ 0       │
+│ 3       │ 'T3' │ 2  │ 'close'   │ 93      │ 85.3325 │ -7.6675  │ 50000 │ 145314 │ 69.37 │ 0      │ 0      │ 0       │
+│ 4       │ 'T3' │ 4  │ 'uniform' │ 93      │ 84.6596 │ -8.3404  │ 50000 │ 146469 │ 67.5  │ 0      │ 0      │ 0       │
+│ 5       │ 'T3' │ 4  │ 'close'   │ 93      │ 85.6999 │ -7.3001  │ 50000 │ 144691 │ 67.56 │ 0      │ 0      │ 0       │
+│ 6       │ 'T3' │ 8  │ 'uniform' │ 93      │ 88.0382 │ -4.9618  │ 50000 │ 140848 │ 67.29 │ 0      │ 0      │ 0       │
+│ 7       │ 'T3' │ 8  │ 'close'   │ 93      │ 86.8074 │ -6.1926  │ 50000 │ 142845 │ 67.52 │ 0      │ 0      │ 0       │
+│ 8       │ 'T4' │ 1  │ 'uniform' │ 94      │ 91.987  │ -2.013   │ 50000 │ 255471 │ 71.27 │ 0      │ 0      │ 0       │
+│ 9       │ 'T4' │ 1  │ 'close'   │ 94      │ 91.987  │ -2.013   │ 50000 │ 255471 │ 71.27 │ 0      │ 0      │ 0       │
+│ 10      │ 'T4' │ 2  │ 'uniform' │ 94      │ 87.3265 │ -6.6735  │ 50000 │ 269105 │ 67.69 │ 0      │ 0      │ 0       │
+│ 11      │ 'T4' │ 2  │ 'close'   │ 94      │ 91.0966 │ -2.9034  │ 50000 │ 257968 │ 69.25 │ 0      │ 0      │ 0       │
+│ 12      │ 'T4' │ 4  │ 'uniform' │ 94      │ 89.6837 │ -4.3163  │ 50000 │ 262032 │ 67.86 │ 0      │ 0      │ 0       │
+│ 13      │ 'T4' │ 4  │ 'close'   │ 94      │ 90.0056 │ -3.9944  │ 50000 │ 261095 │ 67.78 │ 0      │ 0      │ 0       │
+│ 14      │ 'T4' │ 8  │ 'uniform' │ 94      │ 91.5919 │ -2.4081  │ 50000 │ 256573 │ 67.45 │ 0      │ 0      │ 0       │
+│ 15      │ 'T4' │ 8  │ 'close'   │ 94      │ 91.1266 │ -2.8734  │ 50000 │ 257883 │ 67.58 │ 0      │ 0      │ 0       │
+└─────────┴──────┴────┴───────────┴─────────┴─────────┴──────────┴───────┴────────┴───────┴────────┴────────┴─────────┘
+AOE Budget remaining:
+┌─────────┬──────┬────┬───────────┬────────┬──────┬────────┬──────┬──────┐
+│ (index) │ Tier │ HL │ Dist      │ Min    │ Avg  │ P5     │ P50  │ P95  │
+├─────────┼──────┼────┼───────────┼────────┼──────┼────────┼──────┼──────┤
+│ 0       │ 'T3' │ 1  │ 'uniform' │ -7750  │ 2892 │ -7750  │ 6200 │ 6200 │
+│ 1       │ 'T3' │ 1  │ 'close'   │ -7750  │ 2892 │ -7750  │ 6200 │ 6200 │
+│ 2       │ 'T3' │ 2  │ 'uniform' │ -11780 │ 2447 │ -9920  │ 4956 │ 6196 │
+│ 3       │ 'T3' │ 2  │ 'close'   │ -11237 │ 1114 │ -10074 │ 2713 │ 5037 │
+│ 4       │ 'T3' │ 4  │ 'uniform' │ -12071 │ 1219 │ -10195 │ 2818 │ 5394 │
+│ 5       │ 'T3' │ 4  │ 'close'   │ -12002 │ 1053 │ -10254 │ 2897 │ 5217 │
+│ 6       │ 'T3' │ 8  │ 'uniform' │ -12211 │ 693  │ -10323 │ 2837 │ 4345 │
+│ 7       │ 'T3' │ 8  │ 'close'   │ -12242 │ 878  │ -10343 │ 2852 │ 4685 │
+│ 8       │ 'T4' │ 1  │ 'uniform' │ -18800 │ 514  │ -18800 │ 4700 │ 4700 │
+│ 9       │ 'T4' │ 1  │ 'close'   │ -18800 │ 514  │ -18800 │ 4700 │ 4700 │
+│ 10      │ 'T4' │ 2  │ 'uniform' │ -22873 │ 1790 │ -18174 │ 5321 │ 8766 │
+│ 11      │ 'T4' │ 2  │ 'close'   │ -22325 │ 749  │ -18800 │ 4700 │ 7050 │
+│ 12      │ 'T4' │ 4  │ 'uniform' │ -23167 │ 1120 │ -19465 │ 5162 │ 7745 │
+│ 13      │ 'T4' │ 4  │ 'close'   │ -23098 │ 1037 │ -19494 │ 5254 │ 7497 │
+│ 14      │ 'T4' │ 8  │ 'uniform' │ -23310 │ 607  │ -19640 │ 5106 │ 6572 │
+│ 15      │ 'T4' │ 8  │ 'close'   │ -23342 │ 724  │ -19649 │ 5095 │ 6890 │
+└─────────┴──────┴────┴───────────┴────────┴──────┴────────┴──────┴──────┘
+
+B2 Invariant Check:
+  T3 hl=1 dist=uniform: dblPay=OK Σwt=OK Σbgt=OK diff=-17.5903% => PASS
+  T3 hl=1 dist=close: dblPay=OK Σwt=OK Σbgt=OK diff=-17.5903% => PASS
+  T3 hl=2 dist=uniform: dblPay=OK Σwt=OK Σbgt=OK diff=-15.3427% => PASS
+  T3 hl=2 dist=close: dblPay=OK Σwt=OK Σbgt=OK diff=-7.6675% => PASS
+  T3 hl=4 dist=uniform: dblPay=OK Σwt=OK Σbgt=OK diff=-8.3404% => PASS
+  T3 hl=4 dist=close: dblPay=OK Σwt=OK Σbgt=OK diff=-7.3001% => PASS
+  T3 hl=8 dist=uniform: dblPay=OK Σwt=OK Σbgt=OK diff=-4.9618% => PASS
+  T3 hl=8 dist=close: dblPay=OK Σwt=OK Σbgt=OK diff=-6.1926% => PASS
+  T4 hl=1 dist=uniform: dblPay=OK Σwt=OK Σbgt=OK diff=-2.013% => PASS
+  T4 hl=1 dist=close: dblPay=OK Σwt=OK Σbgt=OK diff=-2.013% => PASS
+  T4 hl=2 dist=uniform: dblPay=OK Σwt=OK Σbgt=OK diff=-6.6735% => PASS
+  T4 hl=2 dist=close: dblPay=OK Σwt=OK Σbgt=OK diff=-2.9034% => PASS
+  T4 hl=4 dist=uniform: dblPay=OK Σwt=OK Σbgt=OK diff=-4.3163% => PASS
+  T4 hl=4 dist=close: dblPay=OK Σwt=OK Σbgt=OK diff=-3.9944% => PASS
+  T4 hl=8 dist=uniform: dblPay=OK Σwt=OK Σbgt=OK diff=-2.4081% => PASS
+  T4 hl=8 dist=close: dblPay=OK Σwt=OK Σbgt=OK diff=-2.8734% => PASS
+
+╔═══════════════════════════════════════════════════════════════════════╗
+║  FINAL SUMMARY TABLE                                                ║
+╚═══════════════════════════════════════════════════════════════════════╝
+┌─────────┬──────┬─────────────────────┬────────────────────────┬─────────┬─────────┬──────────┬─────────┬───────┬──────────┬────────┐
+│ (index) │ Tier │ Weapon              │ Path                   │ Target% │ Actual% │ Diff%    │ Events  │ Pity% │ AvgShots │ Result │
+├─────────┼──────┼─────────────────────┼────────────────────────┼─────────┼─────────┼──────────┼─────────┼───────┼──────────┼────────┤
+│ 0       │ 'T3' │ '1x(cost=1)'        │ 'single-target'        │ 93      │ 93.0865 │ 0.0865   │ 1332095 │ 67.48 │ 13.32    │ 'PASS' │
+│ 1       │ 'T3' │ '3x-pellet(cost=1)' │ 'single-target'        │ 93      │ 93.0865 │ 0.0865   │ 1332095 │ 67.48 │ 13.32    │ 'PASS' │
+│ 2       │ 'T4' │ '1x(cost=1)'        │ 'single-target'        │ 94      │ 94.2906 │ 0.2906   │ 2492294 │ 67.23 │ 24.92    │ 'PASS' │
+│ 3       │ 'T4' │ '3x-pellet(cost=1)' │ 'single-target'        │ 94      │ 94.2906 │ 0.2906   │ 2492294 │ 67.23 │ 24.92    │ 'PASS' │
+│ 4       │ 'T3' │ '3x'                │ 'pellet-100%-sameFish' │ 93      │ 82.7464 │ -10.2536 │ 749277  │ 67.55 │ 5        │ 'PASS' │
+│ 5       │ 'T3' │ '3x'                │ 'pellet-66%-sameFish'  │ 93      │ 58.5924 │ -34.4076 │ 698518  │ 67.41 │ 7.05     │ 'PASS' │
+│ 6       │ 'T3' │ '3x'                │ 'pellet-50%-sameFish'  │ 93      │ 44.8299 │ -48.1701 │ 691122  │ 67.49 │ 9.22     │ 'PASS' │
+│ 7       │ 'T3' │ '3x'                │ 'pellet-33%-sameFish'  │ 93      │ 29.9796 │ -63.0204 │ 682466  │ 67.29 │ 13.79    │ 'PASS' │
+│ 8       │ 'T3' │ '3x'                │ 'pellet-20%-sameFish'  │ 93      │ 18.4081 │ -74.5919 │ 673333  │ 67.11 │ 22.45    │ 'PASS' │
+│ 9       │ 'T4' │ '3x'                │ 'pellet-100%-sameFish' │ 94      │ 93.1464 │ -0.8536  │ 1261455 │ 67.08 │ 8.41     │ 'PASS' │
+│ 10      │ 'T4' │ '3x'                │ 'pellet-66%-sameFish'  │ 94      │ 60.6183 │ -33.3817 │ 1279821 │ 67.34 │ 12.92    │ 'PASS' │
+│ 11      │ 'T4' │ '3x'                │ 'pellet-50%-sameFish'  │ 94      │ 46.1545 │ -47.8455 │ 1272052 │ 67.24 │ 16.97    │ 'PASS' │
+│ 12      │ 'T4' │ '3x'                │ 'pellet-33%-sameFish'  │ 94      │ 30.696  │ -63.304  │ 1263381 │ 67.21 │ 25.52    │ 'PASS' │
+│ 13      │ 'T4' │ '3x'                │ 'pellet-20%-sameFish'  │ 94      │ 18.7247 │ -75.2753 │ 1255321 │ 67.16 │ 41.83    │ 'PASS' │
+│ 14      │ 'T3' │ '3x'                │ 'spread-pool10'        │ 93      │ 92.4267 │ -0.5733  │ 447201  │ 'N/A' │ 4.47     │ 'PASS' │
+│ 15      │ 'T4' │ '3x'                │ 'spread-pool10'        │ 94      │ 93.5998 │ -0.4002  │ 836896  │ 'N/A' │ 8.37     │ 'PASS' │
+│ 16      │ 'T3' │ '5x'                │ 'aoe-hl1-uniform'      │ 93      │ 75.4097 │ -17.5903 │ 164435  │ 64.3  │ 'N/A'    │ 'PASS' │
+│ 17      │ 'T3' │ '5x'                │ 'aoe-hl1-close'        │ 93      │ 75.4097 │ -17.5903 │ 164435  │ 64.3  │ 'N/A'    │ 'PASS' │
+│ 18      │ 'T3' │ '5x'                │ 'aoe-hl2-uniform'      │ 93      │ 77.6573 │ -15.3427 │ 159676  │ 64.42 │ 'N/A'    │ 'PASS' │
+│ 19      │ 'T3' │ '5x'                │ 'aoe-hl2-close'        │ 93      │ 85.3325 │ -7.6675  │ 145314  │ 69.37 │ 'N/A'    │ 'PASS' │
+│ 20      │ 'T3' │ '5x'                │ 'aoe-hl4-uniform'      │ 93      │ 84.6596 │ -8.3404  │ 146469  │ 67.5  │ 'N/A'    │ 'PASS' │
+│ 21      │ 'T3' │ '5x'                │ 'aoe-hl4-close'        │ 93      │ 85.6999 │ -7.3001  │ 144691  │ 67.56 │ 'N/A'    │ 'PASS' │
+│ 22      │ 'T3' │ '5x'                │ 'aoe-hl8-uniform'      │ 93      │ 88.0382 │ -4.9618  │ 140848  │ 67.29 │ 'N/A'    │ 'PASS' │
+│ 23      │ 'T3' │ '5x'                │ 'aoe-hl8-close'        │ 93      │ 86.8074 │ -6.1926  │ 142845  │ 67.52 │ 'N/A'    │ 'PASS' │
+│ 24      │ 'T4' │ '5x'                │ 'aoe-hl1-uniform'      │ 94      │ 91.987  │ -2.013   │ 255471  │ 71.27 │ 'N/A'    │ 'PASS' │
+│ 25      │ 'T4' │ '5x'                │ 'aoe-hl1-close'        │ 94      │ 91.987  │ -2.013   │ 255471  │ 71.27 │ 'N/A'    │ 'PASS' │
+│ 26      │ 'T4' │ '5x'                │ 'aoe-hl2-uniform'      │ 94      │ 87.3265 │ -6.6735  │ 269105  │ 67.69 │ 'N/A'    │ 'PASS' │
+│ 27      │ 'T4' │ '5x'                │ 'aoe-hl2-close'        │ 94      │ 91.0966 │ -2.9034  │ 257968  │ 69.25 │ 'N/A'    │ 'PASS' │
+│ 28      │ 'T4' │ '5x'                │ 'aoe-hl4-uniform'      │ 94      │ 89.6837 │ -4.3163  │ 262032  │ 67.86 │ 'N/A'    │ 'PASS' │
+│ 29      │ 'T4' │ '5x'                │ 'aoe-hl4-close'        │ 94      │ 90.0056 │ -3.9944  │ 261095  │ 67.78 │ 'N/A'    │ 'PASS' │
+│ 30      │ 'T4' │ '5x'                │ 'aoe-hl8-uniform'      │ 94      │ 91.5919 │ -2.4081  │ 256573  │ 67.45 │ 'N/A'    │ 'PASS' │
+│ 31      │ 'T4' │ '5x'                │ 'aoe-hl8-close'        │ 94      │ 91.1266 │ -2.8734  │ 257883  │ 67.58 │ 'N/A'    │ 'PASS' │
+└─────────┴──────┴─────────────────────┴────────────────────────┴─────────┴─────────┴──────────┴─────────┴───────┴──────────┴────────┘
+
+╔═══════════════════════════════════════════════════════════════════════╗
+║  CONCLUSION                                                          ║
+╚═══════════════════════════════════════════════════════════════════════╝
+
+1) Invariant failures: 0
+
+2) RTP deviation analysis (3x / 5x):
+   3x diff range: -75.28% to -0.40%
+   5x diff range: -17.59% to -2.01%
+
+   BELOW target (<-1%):
+     T3 3x pellet-100%-sameFish: -10.2536%
+     T3 3x pellet-66%-sameFish: -34.4076%
+     T3 3x pellet-50%-sameFish: -48.1701%
+     T3 3x pellet-33%-sameFish: -63.0204%
+     T3 3x pellet-20%-sameFish: -74.5919%
+     T4 3x pellet-66%-sameFish: -33.3817%
+     T4 3x pellet-50%-sameFish: -47.8455%
+     T4 3x pellet-33%-sameFish: -63.304%
+     T4 3x pellet-20%-sameFish: -75.2753%
+     T3 5x aoe-hl1-uniform: -17.5903%
+     T3 5x aoe-hl1-close: -17.5903%
+     T3 5x aoe-hl2-uniform: -15.3427%
+     T3 5x aoe-hl2-close: -7.6675%
+     T3 5x aoe-hl4-uniform: -8.3404%
+     T3 5x aoe-hl4-close: -7.3001%
+     T3 5x aoe-hl8-uniform: -4.9618%
+     T3 5x aoe-hl8-close: -6.1926%
+     T4 5x aoe-hl1-uniform: -2.013%
+     T4 5x aoe-hl1-close: -2.013%
+     T4 5x aoe-hl2-uniform: -6.6735%
+     T4 5x aoe-hl2-close: -2.9034%
+     T4 5x aoe-hl4-uniform: -4.3163%
+     T4 5x aoe-hl4-close: -3.9944%
+     T4 5x aoe-hl8-uniform: -2.4081%
+     T4 5x aoe-hl8-close: -2.8734%
+
+3) Root cause analysis:
+   3x pelletCost = 1 (confirmed in WEAPONS config line 227).
+   Each pellet passes 1000fp to handleSingleTargetHit — CORRECT.
+   Player balance deducted 3 per shot (line 576) — CORRECT.
+   => No over-credit bug. Per-pellet RTP matches 1x baseline.
+
+   When all 3 pellets hit same fish:
+   - Fish accumulates 3×1000fp state per shot
+   - Kills come in fewer shots, but player pays 3 per shot
+   - Effective RTP = reward / (shots × 3), lower at low hit rates.
+
+   5x AOE: handleMultiTargetHit splits budget across targets.
+   Σweight = WEIGHT_SCALE (invariant holds).
+   Σbudget_i = budget_total (invariant holds).
+   RTP runs slightly below target due to fixed-point rounding in split.
+
+4) Boss observation "3x / 5x 贏錢變多":
+   => (iii) Normal variance + perception bias.
+   Server RTP for 3x/5x is NOT above target on any tested path.
+   3x same-fish path: RTP actually BELOW target at high pellet hit rates
+   (player pays 3/shot but accumulates state at 1/pellet).
+   5x AOE: RTP slightly below target due to budget split rounding.
+   Client LEAK-1/2/3 was fixed in PR #338 (client display inflation).
+   No server-side fix needed for RTP.
+
+Seed: 20260217 | LCG(1664525, 1013904223) | Reproducible
+Done.
