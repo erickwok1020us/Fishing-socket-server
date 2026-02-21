@@ -86,20 +86,58 @@ class BinarySession {
         return true;
     }
     
-    send(packetId, payload) {
+    send(packetId, data) {
         if (this.ws.readyState !== WebSocket.OPEN) {
             return false;
         }
         
         try {
             const nonce = this.getNextNonce();
-            const packet = serializePacket(packetId, payload, this.encryptionKey, this.hmacKey, nonce);
+            const payloadBuffer = Buffer.isBuffer(data) ? data : BinarySession.encodePayload(packetId, data);
+            const packet = serializePacket(packetId, payloadBuffer, this.encryptionKey, this.hmacKey, nonce);
             this.ws.send(packet);
             return true;
         } catch (err) {
             console.error(`[BINARY-WS] Failed to send packet to ${this.sessionId}:`, err.message);
             return false;
         }
+    }
+    
+    static encodePayload(packetId, data) {
+        if (packetId === PacketId.ROOM_STATE) {
+            if (data.rulesHash || data.rulesVersion || data.enforcementPhase != null ||
+                data.seedReveal || data.receipts) {
+                return Buffer.from(JSON.stringify(data), 'utf8');
+            }
+            return BinaryPayloads.encodeRoomState(data);
+        }
+        
+        const encoders = {
+            [PacketId.SHOT_FIRED]: BinaryPayloads.encodeShotFired,
+            [PacketId.HIT_RESULT]: BinaryPayloads.encodeHitResult,
+            [PacketId.BALANCE_UPDATE]: BinaryPayloads.encodeBalanceUpdate,
+            [PacketId.WEAPON_SWITCH]: BinaryPayloads.encodeWeaponSwitch,
+            [PacketId.ROOM_SNAPSHOT]: BinaryPayloads.encodeRoomSnapshot,
+            [PacketId.FISH_SPAWN]: BinaryPayloads.encodeFishSpawn,
+            [PacketId.FISH_DEATH]: BinaryPayloads.encodeFishDeath,
+            [PacketId.BOSS_SPAWN]: BinaryPayloads.encodeFishSpawn,
+            [PacketId.BOSS_DEATH]: BinaryPayloads.encodeFishDeath,
+            [PacketId.PLAYER_JOIN]: BinaryPayloads.encodePlayerJoin,
+            [PacketId.PLAYER_LEAVE]: BinaryPayloads.encodePlayerLeave,
+            [PacketId.ROOM_CREATE]: BinaryPayloads.encodeRoomCreate,
+            [PacketId.ROOM_JOIN]: BinaryPayloads.encodeRoomJoin,
+            [PacketId.GAME_START]: BinaryPayloads.encodeGameStart,
+            [PacketId.TIME_SYNC_PING]: BinaryPayloads.encodeTimeSyncPing,
+            [PacketId.TIME_SYNC_PONG]: BinaryPayloads.encodeTimeSyncPong,
+            [PacketId.ERROR]: BinaryPayloads.encodeError,
+        };
+        
+        const encoder = encoders[packetId];
+        if (encoder) {
+            return encoder(data);
+        }
+        
+        return Buffer.from(JSON.stringify(data), 'utf8');
     }
     
     sendError(code, message) {
@@ -133,6 +171,13 @@ class BinaryWebSocketServer {
     }
     
     verifyClient(info, callback) {
+        const clientIP = info.req.headers['x-forwarded-for'] || info.req.socket.remoteAddress || 'unknown';
+        const handshakeCheck = rateLimiter.checkHandshake(clientIP);
+        if (!handshakeCheck.allowed) {
+            console.warn(`[BINARY-WS][RATE-LIMIT] Connection rejected for IP ${clientIP}: ${handshakeCheck.reason}`);
+            callback(false, 429, 'Too many connections. Please try again later.');
+            return;
+        }
         callback(true);
     }
     
@@ -273,6 +318,11 @@ class BinaryWebSocketServer {
     }
     
     dispatchPacket(session, packetId, payload) {
+        if (packetId === PacketId.ROOM_STATE && payload && payload.requestType) {
+            this.handleRoomStateRequest(session, payload);
+            return;
+        }
+        
         const parser = getPayloadParser(packetId);
         const parsedPayload = parser(payload);
         
@@ -484,6 +534,9 @@ class BinaryWebSocketServer {
             return;
         }
         
+        const weaponCheck = rateLimiter.checkWeaponSwitch(session.sessionId, session.clientIP);
+        if (!weaponCheck.allowed) return;
+        
         const room = this.rooms[session.roomCode];
         if (!room) return;
         
@@ -500,6 +553,12 @@ class BinaryWebSocketServer {
     }
     
     handleRoomCreate(session, data) {
+        const roomCheck = rateLimiter.checkRoomAction(session.sessionId, session.clientIP);
+        if (!roomCheck.allowed) {
+            session.sendError(ErrorCodes.RATE_LIMITED, 'Rate limit exceeded. Please wait before creating a room.');
+            return;
+        }
+        
         const roomCode = this.generateRoomCode();
         
         session.playerId = `player-${session.sessionId.substring(0, 8)}`;
@@ -532,19 +591,33 @@ class BinaryWebSocketServer {
             createdAt: Date.now()
         };
         
+        const governanceFields = {};
+        if (this.configHashManager) {
+            governanceFields.rulesHash = this.configHashManager.getHash();
+            governanceFields.rulesVersion = this.configHashManager.getVersion();
+        }
+        governanceFields.enforcementPhase = this.enforcementPhase;
+        
         session.send(PacketId.ROOM_STATE, {
             roomId: roomCode,
             roomCode: roomCode,
             state: 'lobby',
             players: [this.rooms[roomCode].players[session.playerId]],
             hostId: session.playerId,
-            maxPlayers: 4
+            maxPlayers: 4,
+            ...governanceFields
         });
         
         console.log(`[BINARY-WS] Room created: ${roomCode} by ${session.playerId} with game engine`);
     }
     
     handleRoomJoin(session, data) {
+        const roomCheck = rateLimiter.checkRoomAction(session.sessionId, session.clientIP);
+        if (!roomCheck.allowed) {
+            session.sendError(ErrorCodes.RATE_LIMITED, 'Rate limit exceeded. Please wait before joining a room.');
+            return;
+        }
+        
         const room = this.rooms[data.roomCode];
         const engine = this.gameEngines[data.roomCode];
         
@@ -575,13 +648,21 @@ class BinaryWebSocketServer {
         };
         room.playerCount++;
         
+        const joinGovernanceFields = {};
+        if (this.configHashManager) {
+            joinGovernanceFields.rulesHash = this.configHashManager.getHash();
+            joinGovernanceFields.rulesVersion = this.configHashManager.getVersion();
+        }
+        joinGovernanceFields.enforcementPhase = this.enforcementPhase;
+        
         session.send(PacketId.ROOM_STATE, {
             roomId: data.roomCode,
             roomCode: data.roomCode,
             state: room.state,
             players: Object.values(room.players),
             hostId: room.hostId,
-            maxPlayers: 4
+            maxPlayers: 4,
+            ...joinGovernanceFields
         });
         
         this.broadcastToRoom(data.roomCode, PacketId.PLAYER_JOIN, {
@@ -603,11 +684,82 @@ class BinaryWebSocketServer {
     }
     
     handleTimeSyncPing(session, data) {
+        const timeSyncCheck = rateLimiter.checkTimeSync(session.sessionId);
+        if (!timeSyncCheck.allowed) return;
+        
         session.send(PacketId.TIME_SYNC_PONG, {
             seq: data.seq,
             serverTime: Date.now(),
             clientSendTime: data.clientSendTime
         });
+    }
+    
+    handleVersionCheck(session, data) {
+        if (!this.configHashManager) return;
+        const clientVersion = data.rulesVersion;
+        const serverVersion = this.configHashManager.getVersion();
+        if (clientVersion !== serverVersion) {
+            session.sendError(ErrorCodes.INVALID_PACKET, 'VERSION_MISMATCH:' + serverVersion);
+        }
+    }
+    
+    handleRequestSeedReveal(session) {
+        const seedRevealCheck = rateLimiter.checkStateRequest(session.sessionId);
+        if (!seedRevealCheck.allowed) return;
+        if (!session.roomCode || !this.gameEngines[session.roomCode]) return;
+        const engine = this.gameEngines[session.roomCode];
+        if (typeof engine.revealSeed !== 'function') return;
+        const reveal = engine.revealSeed();
+        if (reveal) {
+            const newCommitment = typeof engine.getSeedCommitment === 'function' ? engine.getSeedCommitment() : null;
+            session.send(PacketId.ROOM_STATE, {
+                roomId: session.roomCode,
+                roomCode: session.roomCode,
+                state: 'seedRevealed',
+                players: [],
+                hostId: '',
+                maxPlayers: 0,
+                seedReveal: reveal,
+                newCommitment: newCommitment ? newCommitment.currentCommitment : null
+            });
+        }
+    }
+    
+    handleRequestReceipts(session) {
+        const receiptsCheck = rateLimiter.checkStateRequest(session.sessionId);
+        if (!receiptsCheck.allowed) return;
+        if (!session.roomCode || !this.gameEngines[session.roomCode]) return;
+        const engine = this.gameEngines[session.roomCode];
+        if (typeof engine.getReceipts !== 'function') return;
+        const receipts = engine.getReceipts();
+        const chainValid = typeof engine.verifyReceiptChain === 'function' ? engine.verifyReceiptChain() : true;
+        session.send(PacketId.ROOM_STATE, {
+            roomId: session.roomCode,
+            roomCode: session.roomCode,
+            state: 'receipts',
+            players: [],
+            hostId: '',
+            maxPlayers: 0,
+            receipts: receipts,
+            chainValid: chainValid
+        });
+    }
+    
+    handleRoomStateRequest(session, data) {
+        const requestType = data.requestType || data.state;
+        switch (requestType) {
+            case 'versionCheck':
+                this.handleVersionCheck(session, data);
+                break;
+            case 'requestSeedReveal':
+                this.handleRequestSeedReveal(session);
+                break;
+            case 'requestReceipts':
+                this.handleRequestReceipts(session);
+                break;
+            default:
+                break;
+        }
     }
     
     handleGameStart(session, data) {
